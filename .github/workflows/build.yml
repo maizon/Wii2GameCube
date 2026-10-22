@@ -23,6 +23,8 @@ jobs:
       image: devkitpro/devkitppc:20260503
     steps:
       - uses: actions/checkout@v4
+      - name: Expose devkitPPC compiler tools to PATH
+        run: echo "${DEVKITPPC}/bin" >> "$GITHUB_PATH"
       - name: Report PowerPC toolchain
         run: |
           echo "DEVKITPRO=${DEVKITPRO}"
