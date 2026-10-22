@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.elf
+*.dol
+*.o
+*.map
+*.iso
+*.wbfs
+*.wad
+*.bin
+*.app
+*.tik
+*.tmd
+.DS_Store
