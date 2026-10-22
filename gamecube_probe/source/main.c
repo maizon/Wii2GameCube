@@ -71,29 +71,94 @@ static void scan_guest_header(void) {
     printf("Only metadata inspected, no .dol execution.\n");
 }
 
-/* The embedded bytes are Wii-compiled PPC instructions, not a function in
- * the host's ELF. Copy to writable MEM1, synchronize dcache/icache, call.
- * A guest must return normally using the same EABI calling convention.
+/*
+ * Load a deliberately restricted one-section Wii-freestanding DOL fixture.
+ * Its original virtual address is metadata. The code has no relocations,
+ * global data, IOS calls or absolute pointer references, so we can rebase
+ * it into an allocated MEM1 region after flushing/invalidation of caches.
+ *
+ * This is a closed-world loader: only bundled project-authored DOL bytes,
+ * never any user-provided Wii executable.
  */
 static guest_step_fn prepare_embedded_guest(void **allocated) {
-    const size_t size = (size_t)(gcwcl_guest_end - gcwcl_guest_start);
-    if (!size || size > MAX_GUEST_BYTES || (size & 3u)) {
-        printf("Guest: rejected invalid size (%lu bytes)\n", (unsigned long)size);
+    const size_t file_size = (size_t)(gcwcl_guest_end - gcwcl_guest_start);
+    const unsigned char *dol = gcwcl_guest_start;
+    if (file_size < DOL_HEADER_LEN || file_size > DOL_HEADER_LEN + MAX_GUEST_BYTES) {
+        printf("Guest DOL: invalid file size (%lu)\n", (unsigned long)file_size);
         return NULL;
     }
-    const size_t rounded = (size + 31u) & ~(size_t)31u;
+    const uint32_t off = be32(dol);
+    const uint32_t address = be32(dol + 0x48);
+    const uint32_t size = be32(dol + 0x90);
+    const uint32_t entry = be32(dol + 0xE0);
+    if (off != DOL_HEADER_LEN || address != 0x80018000u ||
+        entry != address || !size || size > MAX_GUEST_BYTES ||
+        (size & 3u) || file_size != DOL_HEADER_LEN + (size_t)size ||
+        be32(dol + 0xD8) || be32(dol + 0xDC)) {
+        printf("Guest DOL: rejected unsafe header/entry/layout\n");
+        return NULL;
+    }
+    for (unsigned int section = 1; section < 18; section++) {
+        if (be32(dol + 4u * section) ||
+            be32(dol + 0x48u + 4u * section) ||
+            be32(dol + 0x90u + 4u * section)) {
+            printf("Guest DOL: extra sections forbidden\n");
+            return NULL;
+        }
+    }
+    for (unsigned int byte = 0xE4u; byte < DOL_HEADER_LEN; byte++) {
+        if (dol[byte]) {
+            printf("Guest DOL: nonzero reserved header\n");
+            return NULL;
+        }
+    }
+
+    const size_t rounded = ((size_t)size + 31u) & ~(size_t)31u;
     unsigned char *code = (unsigned char *)memalign(32u, rounded);
     if (!code) {
-        printf("Guest: MEM1 allocation failed\n");
+        printf("Guest DOL: MEM1 allocation failed\n");
         return NULL;
     }
-    memcpy(code, gcwcl_guest_start, size);
+    memcpy(code, dol + DOL_HEADER_LEN, size);
     memset(code + size, 0, rounded - size);
     DCFlushRange(code, rounded);
     ICInvalidateRange(code, rounded);
     *allocated = code;
+    printf("Guest Wii DOL: %lu bytes | TEXT 0x%08lx rebased to MEM1\n",
+           (unsigned long)file_size, (unsigned long)address);
     printf("Wii PPC: loaded %lu code bytes into MEM1\n", (unsigned long)size);
     return (guest_step_fn)code;
+}
+
+/* VI XFB uses YUY2 (2 pixels per 32-bit word), NOT RGB565.
+ * We write into uncached XFB below the console's text area.
+ * Sprite positions originate in the Wii-target guest function.
+ */
+static void rect_yuy2(volatile uint32_t *fb, const GXRModeObj *mode,
+                      int x, int y, int w, int h, uint32_t yuy2) {
+    const int fbw = (int)mode->fbWidth, fbh = (int)mode->xfbHeight;
+    if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > fbw || y + h > fbh ||
+        (x & 1) || (w & 1)) return;
+    const int pairs_per_line = fbw / 2;
+    for (int row = 0; row < h; row++) {
+        volatile uint32_t *line = fb + (y + row) * pairs_per_line + x / 2;
+        for (int pair = 0; pair < w / 2; pair++) line[pair] = yuy2;
+    }
+}
+
+static void draw_guest_2d(void *xfb, const GXRModeObj *mode, uint32_t coordinates) {
+    const int x0 = 40;
+    const int width = ((int)mode->fbWidth - 80) & ~1;
+    const int y0 = mode->xfbHeight > 270 ? (int)mode->xfbHeight - 112 :
+                   (int)mode->xfbHeight / 2;
+    const int height = (int)mode->xfbHeight - y0 - 10;
+    if (width < 80 || height < 32 || y0 < 0) return;
+    volatile uint32_t *fb = (volatile uint32_t *)xfb;
+    rect_yuy2(fb, mode, x0, y0, width, height, 0x30803080u);
+    const int step_x = ((width - 20) * (int)((coordinates >> 16) % 40u)) / 39;
+    const int step_y = ((height - 18) * (int)((coordinates & 0xFFFFu) % 14u)) / 13;
+    const int sprite_x = (x0 + step_x) & ~1;
+    rect_yuy2(fb, mode, sprite_x, y0 + step_y, 16, 16, 0xD080D080u);
 }
 
 int main(int argc, char **argv) {
@@ -137,17 +202,15 @@ int main(int argc, char **argv) {
         printf("FAIL: embedded guest unavailable.\n");
     }
     printf("No Wii IOS/GX API emulation; no arbitrary DOL loading.\n");
-    printf("2D guest sprite coordinates, computed on GC:\n");
-
+    printf("2D guest sprite: small moving square in YUY2 XFB.\n");
+    printf("Automatic demo; no SD, Wii IOS, or controls.\n");
     unsigned long frame = 0ul;
     for (;;) {
         VIDEO_WaitVSync();
         frame++;
-        if (guest && frame % 60ul == 0ul) {
-            uint32_t p = guest((uint32_t)(frame / 60ul));
-            printf("sprite(%lu,%lu) ", (unsigned long)(p >> 16),
-                   (unsigned long)(p & 0xffffu));
-            if ((frame / 60ul) % 5ul == 0ul) printf("\n");
+        if (guest && frame % 4ul == 0ul) {
+            const uint32_t p = guest((uint32_t)(frame / 4ul));
+            draw_guest_2d(xfb, mode, p);
         }
     }
     /* kept alive for entire process, no free(guest_memory) needed */
