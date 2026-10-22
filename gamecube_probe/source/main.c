@@ -13,6 +13,10 @@
 #include <stdlib.h>
 #include <malloc.h>
 
+/* Wii-target 2D command ABI runs alongside the legacy coordinate proof. */
+int scene_runtime_init(void);
+int scene_runtime_tick(void *xfb, const GXRModeObj *mode, uint32_t frame);
+
 #define DOL_HEADER_LEN 256u
 #define MAX_GUEST_BYTES 4096u
 static unsigned char dol_header[DOL_HEADER_LEN] ATTRIBUTE_ALIGN(32);
@@ -201,6 +205,7 @@ int main(int argc, char **argv) {
     } else {
         printf("FAIL: embedded guest unavailable.\n");
     }
+    const int scene_active = scene_runtime_init();
     printf("No Wii IOS/GX API emulation; no arbitrary DOL loading.\n");
     printf("2D guest sprite: small moving square in YUY2 XFB.\n");
     printf("Automatic demo; no SD, Wii IOS, or controls.\n");
@@ -208,9 +213,13 @@ int main(int argc, char **argv) {
     for (;;) {
         VIDEO_WaitVSync();
         frame++;
-        if (guest && frame % 4ul == 0ul) {
-            const uint32_t p = guest((uint32_t)(frame / 4ul));
-            draw_guest_2d(xfb, mode, p);
+        if (frame % 4ul == 0ul) {
+            if (!scene_active || !scene_runtime_tick(xfb, mode, (uint32_t)(frame / 4ul))) {
+                if (guest) {
+                    const uint32_t p = guest((uint32_t)(frame / 4ul));
+                    draw_guest_2d(xfb, mode, p);
+                }
+            }
         }
     }
     /* kept alive for entire process, no free(guest_memory) needed */

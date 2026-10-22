@@ -8,7 +8,7 @@ endif
 include $(DEVKITPPC)/gamecube_rules
 
 TARGET := gcwcl_probe
-OBJ := source/main.o source/guest_blob.o
+OBJ := source/main.o source/guest_blob.o source/scene_runtime.o source/scene_blob.o
 CFLAGS := -O2 -g -Wall -Wextra -Werror -std=gnu11 $(MACHDEP) -I$(LIBOGC_INC)
 LDFLAGS := -g $(MACHDEP)
 LIBS := -L$(LIBOGC_LIB) -lfat -logc -lm
@@ -20,6 +20,12 @@ all: $(TARGET).dol
 	$(MAKE) -C ../guest_probe all
 
 source/guest_blob.o: source/guest_blob.S ../guest_probe/guest.dol
+	$(CC) $(MACHDEP) -c -o $@ $<
+
+../guest_scene/scene.dol: ../guest_scene/source/scene.c ../guest_scene/include/scene_abi.h ../guest_scene/Makefile ../tools/pack_guest_dol.py
+	$(MAKE) -C ../guest_scene all
+
+source/scene_blob.o: source/scene_blob.S ../guest_scene/scene.dol
 	$(CC) $(MACHDEP) -c -o $@ $<
 
 source/%.o: source/%.c
@@ -34,3 +40,4 @@ $(TARGET).dol: $(TARGET).elf
 clean:
 	rm -f $(OBJ) $(TARGET).elf $(TARGET).dol
 	$(MAKE) -C ../guest_probe clean
+	$(MAKE) -C ../guest_scene clean
