@@ -81,10 +81,10 @@ jobs:
       - name: Install Dolphin emulator and virtual X11 display
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends dolphin-emu xvfb imagemagick libgl1-mesa-dri
+          sudo apt-get install -y --no-install-recommends dolphin-emu xvfb imagemagick libgl1-mesa-dri libxcb-cursor0
           python -m pip install 'Pillow>=10,<14'
           command -v dolphin-emu
-          dolphin-emu --version
+          xvfb-run -a -s "-screen 0 1280x720x24" dolphin-emu --version
       - name: Run GC executable and verify visible Wii guest sprites
         env:
           LIBGL_ALWAYS_SOFTWARE: "1"
