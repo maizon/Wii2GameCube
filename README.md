@@ -1,67 +1,53 @@
-# Wii2GameCube — Compatibilidade PowerPC experimental
+# Wii2GameCube — pesquisa de compatibilidade Wii → GameCube
 
-**Estado: fase 1 em desenvolvimento — executar uma função PPC construída com o alvo Wii no processo de um programa GameCube.** Nenhuma compatibilidade genérica com Wii foi demonstrada.
+Experimentos PowerPC desenvolvidos por **Maicon Nascimento**. Código original MIT; não relacionado à Nintendo.
 
-Projeto experimental de Maicon Nascimento. Wii e GameCube usam PowerPC, mas Wii possui hardware, IOS, MEM2 e APIs que **não existem no GameCube**. Este repositório testa o que pode ser executado nativamente sem fingir que um binário comercial funcionará automaticamente.
+> **Atenção:** O projeto **não executa jogos WiiWare, Wii Menu ou homebrews Wii completos no GameCube**. A etapa atual investiga uma ABI comum através de um DOL mínimo, sem serviços IOS. Não distribuir ISOs, NAND, chaves, WADs ou jogos.
 
-## Resultados confirmados
+## Fatos demonstrados
 
-As capturas do primeiro teste no Dolphin mostraram:
-- `wii_guest_sample.dol` rodando no **modo Wii**, inicializando vídeo;
-- `gcwcl_probe.dol` fase 0 rodando no **modo GameCube**, mostrando heartbeat.
+- ✅ Homebrew de Wii compilado com devkitPPC e iniciado no **Dolphin modo Wii**.
+- ✅ Programa diagnóstico GameCube compilado e iniciado no **Dolphin modo GC**.
+- ✅ Fase 1: captura real no Dolphin GC recebida, mostrando `PASS Wii-target PPC execution: 5/5`. Uma função isolada PPC compilada com flags de Wii foi copiada e executada em GC. Isso **não prova** compatibilidade com bibliotecas Wii.
 
-São duas execuções independentes: isso não demonstra um Wii DOL rodando no GameCube.
+## Nova fase 2 (implementada no repositório)
 
-## Fase 1: nova demonstração (sem SD e sem controles)
+O `guest_probe/` compila uma função freestanding usando as flags de Wii, extrai seu código e gera um arquivo DOL mínimo com uma seção de texto e entrada `0x80018000`.
 
-A construção do GameCube inclui um **guest PPC freestanding** compilado com `wii_rules` / `-mrvl`. Não é o executável completo de um homebrew de Wii.
+O `gamecube_probe/` agora incorpora **esse DOL**, valida seu cabeçalho e move somente seus 80 bytes de código para memória MEM1 alocada. Atualiza caches, executa a função no GameCube e apresenta uma animação 2D (quadrado móvel) diretamente no framebuffer YUY2, cujas coordenadas vêm do código compilado para Wii.
 
-O código do guest recebe o número de um frame, computa coordenadas 2D (x,y) e retorna. O código Wii é extraído da seção `.text.guest` e embutido como bytes, copiado pelo GC para memória própria alinhada em 32 bytes. O host sincroniza D-cache/I-cache, chama a rotina, confere cinco casos de teste e mostra as coordenadas.
+O resultado ainda é experimental, pois a nova execução no Dolphin GC não foi testada dinamicamente em CI.
 
-A rotina não faz chamadas ao IOS, ao sistema, à GPU ou à memória MEM2. A interface de retorno é explícita e restrita; por segurança, nenhum DOL arbitrário é executado.
+### Por que não carregar o Wii `.dol` completo?
 
-### Teste no Dolphin Android (modo GameCube)
+Homebrews comuns são ligados a libogc, driver de vídeo Wii, MEM2, IOS e/ou dependências ausentes no GC. Nosso único guest executável no GC usa código original controlado **sem nenhum acesso a recursos exclusivos do Wii**. Isso não é emulador de IOS, nem um loader universal.
 
-1. Vá à aba Actions, abra a **última execução verde** na branch `feat/wii-ppc-guest-execution` ou `main` após merge.
-2. Baixe o artifact `wii2gamecube-phase1-ppc-proof`.
-3. Extraia e abra **`gamecube_probe/gcwcl_probe.dol` no Dolphin GameCube** (identifique os botões do GameCube no overlay, não Wii).
-4. Procure `PASS Wii-target PPC execution: 5/5` e mudanças periódicas nas coordenadas `sprite(x,y)`.
-5. Se falhar, envie captura de tela e o log do Dolphin; não precisa de SD nem de controle.
+### Estrutura
 
-Veja [TEST_MATRIX.md](docs/TEST_MATRIX.md) para resultados esperados e limitações.
+| Arquivo | Uso |
+|---|---|
+| `guest_probe/source/guest.c` | Função PPC compilada com configuração Wii |
+| `tools/pack_guest_dol.py` | Serializa/valida o DOL freestanding de seção única |
+| `tools/guest_gate.py` | Valida instrução de retorno, tamanho e ausência de relocação |
+| `gamecube_probe/source/main.c` | Valida e executa DOL embutido no host GC; renderização 2D |
+| `wii_sample/source/main.c` | Aplicação Wii tradicional usada como referência |
+| `tools/dol_inspect.py` | Analisa estrutura de DOL sem afirmar compatibilidade |
+| `tests/` | Testes sintéticos e de segurança |
+| `.github/workflows/build.yml` | Compila, valida e publica artefatos |
 
-## Árvore do projeto
+### Compilar e testar
 
-- `guest_probe/`: rotina Wii-freestanding, código PPC sem sistema operacional; seu Makefile gera `guest.bin`.
-- `gamecube_probe/`: aplicativo GameCube que testa dinamicamente os bytes do guest construído para Wii, em MEM1; `sd:/guest.dol`, quando presente, tem **apenas seu cabeçalho inspecionado**, não é executado.
-- `wii_sample/`: homebrew Wii original, usado como controle de referência em Dolphin Wii.
-- `tools/guest_gate.py`: rejeita código de guest sem `blr`, maior que 4 KiB ou com relocação em `.text.guest`.
-- `tools/dol_inspect.py`: inspeção estrutural de DOL, sem declarar compatibilidade.
-- `tests/`: testes Python, incluindo verificações negativas.
-
-## Compilar
-
-Use devkitPro + devkitPPC + libogc + libfat, como no GitHub Actions:
+Ferramentas: devkitPro / devkitPPC / libogc / libfat, além de Python 3.
 
 ```bash
+python3 -m unittest discover -s tests -v
 make -C guest_probe
 python3 tools/guest_gate.py guest_probe/guest.o guest_probe/guest.bin
+python3 tools/dol_inspect.py guest_probe/guest.dol --strict
 make -C gamecube_probe
 make -C wii_sample
-python3 -m unittest discover -s tests -v
 ```
 
-DOLs compilados não contêm jogos da Nintendo. O projeto não fornece ISOs, WADs, NAND, firmware nem chaves de terceiros. Apenas código original MIT.
+**A validação automatizada é pré-requisito para merge, mas não é substituto para execução do software sob emulação GameCube.** A próxima meta é instrumentar Dolphin no CI. Não são necessários controles no estágio atual.
 
-## Marcos
-
-| Marco | Estado |
-|---|---|
-| Build dos 2 programas separados Wii/GC | ✅ CI fase 0 |
-| Teste Dolphin Wii/GC separados | ✅ Capturas fornecidas |
-| Função PPC Wii-freestanding embutida no host GC | ✅ Código em desenvolvimento; execução a validar |
-| Execução da rotina Wii-target no Dolphin GC | ⏳ A validar com novo DOL |
-| Carregamento de homebrew Wii DOL completo no GC | ❌ Não implementado |
-| WiiWare 2D, IOS, Wii Menu original | ❌ Não suportados |
-
-Consulte [ROADMAP.md](docs/ROADMAP.md). *Nintendo, Wii e GameCube são marcas dos respectivos titulares; não há afiliação.*
+Leia a [matriz de evidências](docs/TEST_MATRIX.md) e [roadmap](docs/ROADMAP.md).
