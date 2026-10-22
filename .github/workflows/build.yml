@@ -64,3 +64,38 @@ jobs:
             guest_scene/scene.dol
             wii_sample/wii_guest_sample.dol
           if-no-files-found: error
+
+  dolphin-visual-smoke:
+    name: Dolphin GameCube runtime screenshot proof
+    runs-on: ubuntu-26.04
+    needs: homebrew-build
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: wii2gamecube-phase3-guest-scene
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Dolphin emulator and virtual X11 display
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends dolphin-emu xvfb imagemagick libgl1-mesa-dri
+          python -m pip install 'Pillow>=10,<14'
+          command -v dolphin-emu
+          dolphin-emu --version
+      - name: Run GC executable and verify visible Wii guest sprites
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          xvfb-run -a -s "-screen 0 1280x720x24" \
+            python tools/dolphin_smoke.py gamecube_probe/gcwcl_probe.dol \
+            --seconds 35 --artifacts dolphin-evidence
+      - name: Upload Dolphin screenshot and logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dolphin-visual-evidence
+          path: dolphin-evidence/
+          if-no-files-found: warn
