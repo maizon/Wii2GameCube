@@ -1,4 +1,4 @@
-name: GameCube host + Wii PPC guest proof
+name: Wii2GameCube build, DOL checks and PPC proof
 on:
   push:
   pull_request:
@@ -13,9 +13,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Run unit tests
+      - name: Run complete unit tests
         run: python -m unittest discover -s tests -v
-      - name: Python syntax check
+      - name: Check Python source
         run: python -m compileall -q tools tests
   homebrew-build:
     runs-on: ubuntu-latest
@@ -25,34 +25,34 @@ jobs:
       - uses: actions/checkout@v4
       - name: Expose devkitPPC compiler tools to PATH
         run: echo "${DEVKITPPC}/bin" >> "$GITHUB_PATH"
-      - name: Report PowerPC toolchain
-        run: |
-          echo "DEVKITPRO=${DEVKITPRO}"
-          echo "DEVKITPPC=${DEVKITPPC}"
-          command -v powerpc-eabi-gcc
-          command -v elf2dol
-          command -v python3
-          powerpc-eabi-gcc --version | head -n 1
-      - name: Build Wii-target freestanding PPC guest
+      - name: Build Wii-target freestanding guest DOL
         run: make -C guest_probe all
-      - name: Verify isolated guest can be embedded
+      - name: Validate PPC relocation gate
         run: python3 tools/guest_gate.py guest_probe/guest.o guest_probe/guest.bin
-      - name: Build GameCube host with embedded Wii PPC guest
+      - name: Validate DOL layout in static analyzer
+        run: python3 tools/dol_inspect.py guest_probe/guest.dol --strict
+      - name: Assert deterministic DOL packaging
+        run: |
+          python3 tools/pack_guest_dol.py guest_probe/guest.bin /tmp/rebuilt-guest.dol
+          cmp /tmp/rebuilt-guest.dol guest_probe/guest.dol
+      - name: Build GC host with DOL parser and 2D renderer
         run: make -C gamecube_probe all
       - name: Build independent Wii homebrew baseline
         run: make -C wii_sample all
       - name: Verify outputs
         run: |
+          test -s guest_probe/guest.dol
           test -s guest_probe/guest.bin
           test -s gamecube_probe/gcwcl_probe.dol
           test -s wii_sample/wii_guest_sample.dol
-          ls -lh guest_probe/guest.bin gamecube_probe/gcwcl_probe.dol wii_sample/wii_guest_sample.dol
-      - name: Upload Phase 1 proof programs
+          ls -lh guest_probe/guest.dol guest_probe/guest.bin gamecube_probe/gcwcl_probe.dol wii_sample/wii_guest_sample.dol
+      - name: Upload reproducible proof artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wii2gamecube-phase1-ppc-proof
+          name: wii2gamecube-phase2-dol-and-2d
           path: |
             gamecube_probe/gcwcl_probe.dol
+            guest_probe/guest.dol
             guest_probe/guest.bin
             wii_sample/wii_guest_sample.dol
           if-no-files-found: error

@@ -12,7 +12,7 @@ CFLAGS := -O2 -Wall -Wextra -Werror -std=gnu11 $(MACHDEP) \
 	-fno-unwind-tables -fno-asynchronous-unwind-tables -mno-sdata
 
 .PHONY: all clean
-all: guest.bin
+all: guest.dol
 
 guest.o: source/guest.c
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -21,5 +21,8 @@ guest.bin: guest.o
 	$(OBJCOPY) -O binary --only-section=.text.guest $< $@
 	test -s $@
 
+guest.dol: guest.bin
+	python3 ../tools/pack_guest_dol.py $< $@
+
 clean:
-	rm -f guest.o guest.bin
+	rm -f guest.o guest.bin guest.dol

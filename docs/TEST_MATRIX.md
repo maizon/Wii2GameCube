@@ -1,36 +1,31 @@
-# Test matrix: what the screenshots prove
+# Evidence and automated verification
 
-## Reported by tester, 21 October 2026
+## Human screenshots already provided
 
-Two **independent** screenshots were received:
-1. **Wii guest screenshot** (Wii controller overlay): `wii_guest_sample.dol` displays `Wii guest: video initialization completed`. This is evidence the Wii homebrew runs in Wii-mode emulation, **not** on GameCube hardware.
-2. **GameCube probe screenshot** (GameCube controller overlay): `gcwcl_probe.dol` displays phase 0 diagnostics and heartbeat. This confirms the GC native program reaches video and its main loop inside Dolphin's GameCube emulation. SD absent, expected.
+Two earlier images proved **separate** Wii/GC native program booting in Dolphin modes.
 
-Neither screenshot proves Wii executables or IOS services function on a real GC.
+A later screenshot from the user proved that the Phase 1 GameCube host loaded 80 Wii-configured PPC instruction bytes into MEM1 and obtained **5/5 PASS** plus changing sprite coordinates. This is experimental cross-target PPC execution. It is **not** the execution of the Wii homebrew's libogc/IOS code on GC.
 
-## New Phase 1 test (embedded PPC guest)
+## Phase 2 (no manual user testing required)
 
-Load **only** the new `gamecube_probe/gcwcl_probe.dol` in Dolphin **GameCube** mode.
+The CI automatically:
+1. Compiles `guest_probe/guest.c` using Wii-target `wii_rules`.
+2. Checks for return instruction and that the `.text.guest` section requires no relocation.
+3. Wraps this compiled code into a minimal, strictly validated Wii-format `.dol`.
+4. Confirms `dol_inspect.py` accepts its file layout.
+5. Repackages the DOL and compares bytes for reproducibility.
+6. Builds the GC application embedding the **entire DOL file**, not raw code.
+7. Builds the separate standalone Wii homebrew as a baseline.
+8. Publishes both DOLs plus the guest fixture in a GitHub Actions artifact.
 
-Expected output contains:
-```
-Wii2GameCube - Phase 1 PowerPC guest
-Host: GameCube native | Guest: Wii-built PPC
-Wii PPC: loaded <nonzero> code bytes into MEM1
-Wii->GC 0: (7,11) PASS
-Wii->GC 1: (10,2) PASS
-PASS Wii-target PPC execution: 5/5
-sprite(...,...)
-```
-The dynamic coordinates should change with each second. A later execution in GameCube hardware is still required.
+The new GC program validates the header of its embedded DOL, rebases its only text section to an allocated MEM1 region, invalidates instruction cache, executes the pure Wii-target function, compares five vectors and draws a moving 2D square to the GameCube VI XFB in YUY2 format.
 
-`Wii PPC` means *freestanding PowerPC instructions compiled by the Wii-configured compiler*: it does **not** mean the standalone `wii_guest_sample.dol` can be started by the GC, nor that Wii's IOS, MEM2, Wii graphics, discs or menu are supported.
+**Important:** GitHub Actions compilation and file structure tests alone do NOT prove successful execution of this new build in Dolphin GC, because emulation is not yet part of CI. We will not ask the user to manually test as a prerequisite to continuing. The Phase 1 image is the verified dynamic baseline.
 
-## Stop conditions
+## Constraints
 
-- A black screen/crash after `Wii PPC: loaded`: collect Dolphin log; investigate ABI, generated instructions, instruction cache, memory bounds.
-- A FAIL for any of five cases: capture expected/actual output; do not expand to loading arbitrary DOLs.
-- DOL boots but missing embedded payload: build pipeline/artifact issue.
-- Do not try executing an ISO/WAD or original Wii menu with this version.
-
-Only after the Phase 1 test succeeds should we tackle a tiny isolated Wii-built DOL with explicit relocation constraints.
+- The guest DOL is generated from OUR ORIGINAL project-authored freestanding code; no IOS, libogc, system calls or arbitrary game files are executed.
+- Its `0x80018000` original address is metadata and code is copied to newly allocated memory, not written directly there.
+- Exactly one TEXT section, maximum 4096 bytes of code, no BSS/DATA, entry exactly first instruction, no relocations.
+- A real Wii `wii_guest_sample.dol` is built but **not loaded by GC**. Commercial WiiWare and Wii Menu require independent compatibility work.
+- Future step: add emulator-driven GameCube execution to CI if a stable reproducible Dolphin runner is available.
