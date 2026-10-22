@@ -14,7 +14,7 @@ Experimentos PowerPC desenvolvidos por **Maicon Nascimento**. Código original M
 
 O `guest_probe/` compila uma função freestanding usando as flags de Wii, extrai seu código e gera um arquivo DOL mínimo com uma seção de texto e entrada `0x80018000`.
 
-O `gamecube_probe/` agora incorpora **esse DOL**, valida seu cabeçalho e move somente seus 80 bytes de código para memória MEM1 alocada. Atualiza caches, executa a função no GameCube e apresenta uma animação 2D (quadrado móvel) diretamente no framebuffer YUY2, cujas coordenadas vêm do código compilado para Wii.
+O `gamecube_probe/` agora incorpora **esse DOL**, valida seu cabeçalho e move sua seção de código (80 bytes úteis, preenchida até 96 bytes por alinhamento) para memória MEM1 alocada. Atualiza caches, executa a função no GameCube e apresenta uma animação 2D (quadrado móvel) diretamente no framebuffer YUY2, cujas coordenadas vêm do código compilado para Wii.
 
 O resultado ainda é experimental, pois a nova execução no Dolphin GC não foi testada dinamicamente em CI.
 

@@ -19,8 +19,8 @@ def corrupt(blob: bytes, off: int, val: int) -> bytes:
 class GuestDolTests(unittest.TestCase):
     def test_roundtrip(self):
         dol = pack(RETURNING_CODE)
-        self.assertEqual(len(dol), 0x108)
-        self.assertEqual(validate(dol), RETURNING_CODE)
+        self.assertEqual(len(dol), 0x120)
+        self.assertEqual(validate(dol), RETURNING_CODE + bytes(24))
 
     def test_length_caps(self):
         for code in (b"", b"x", b"x" * 4097):

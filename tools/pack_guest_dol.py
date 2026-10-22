@@ -64,8 +64,11 @@ def pack(code: bytes) -> bytes:
     for off, value in [(0x00, HEADER_SIZE), (0x48, ORIGINAL_TEXT_ADDRESS),
                        (0x90, len(code)), (0xE0, ORIGINAL_TEXT_ADDRESS)]:
         struct.pack_into(">I", header, off, value)
-    output = bytes(header) + code
-    assert validate(output) == code
+    # DOL toolchain expects section sizes aligned to 32 bytes in strict mode.
+    padded = code + bytes((-len(code)) % 32)
+    struct.pack_into(\">I\", header, 0x90, len(padded))
+    output = bytes(header) + padded
+    assert validate(output) == padded
     return output
 
 
