@@ -23,10 +23,17 @@ jobs:
       image: devkitpro/devkitppc:20260503
     steps:
       - uses: actions/checkout@v4
+      - name: Report PowerPC toolchain
+        run: |
+          echo "DEVKITPRO=${DEVKITPRO}"
+          echo "DEVKITPPC=${DEVKITPPC}"
+          command -v powerpc-eabi-gcc
+          command -v elf2dol
+          powerpc-eabi-gcc --version | head -n 1
       - name: Build GameCube diagnostic DOL
-        run: make -C gamecube_probe
+        run: make -C gamecube_probe all
       - name: Build Wii proof fixture DOL
-        run: make -C wii_sample
+        run: make -C wii_sample all
       - name: Verify artifact files
         run: |
           test -s gamecube_probe/gcwcl_probe.dol
