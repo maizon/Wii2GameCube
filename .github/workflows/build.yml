@@ -1,4 +1,4 @@
-name: DOL inspector tests and PowerPC homebrew builds
+name: GameCube host + Wii PPC guest proof
 on:
   push:
   pull_request:
@@ -13,7 +13,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Run analyzer unit tests
+      - name: Run unit tests
         run: python -m unittest discover -s tests -v
       - name: Python syntax check
         run: python -m compileall -q tools tests
@@ -31,20 +31,28 @@ jobs:
           echo "DEVKITPPC=${DEVKITPPC}"
           command -v powerpc-eabi-gcc
           command -v elf2dol
+          command -v python3
           powerpc-eabi-gcc --version | head -n 1
-      - name: Build GameCube diagnostic DOL
+      - name: Build Wii-target freestanding PPC guest
+        run: make -C guest_probe all
+      - name: Verify isolated guest can be embedded
+        run: python3 tools/guest_gate.py guest_probe/guest.o guest_probe/guest.bin
+      - name: Build GameCube host with embedded Wii PPC guest
         run: make -C gamecube_probe all
-      - name: Build Wii proof fixture DOL
+      - name: Build independent Wii homebrew baseline
         run: make -C wii_sample all
-      - name: Verify artifact files
+      - name: Verify outputs
         run: |
+          test -s guest_probe/guest.bin
           test -s gamecube_probe/gcwcl_probe.dol
           test -s wii_sample/wii_guest_sample.dol
-      - name: Upload proof artifacts (NOT a compatibility demonstration)
+          ls -lh guest_probe/guest.bin gamecube_probe/gcwcl_probe.dol wii_sample/wii_guest_sample.dol
+      - name: Upload Phase 1 proof programs
         uses: actions/upload-artifact@v4
         with:
-          name: wii2gamecube-phase0-dols
+          name: wii2gamecube-phase1-ppc-proof
           path: |
             gamecube_probe/gcwcl_probe.dol
+            guest_probe/guest.bin
             wii_sample/wii_guest_sample.dol
           if-no-files-found: error

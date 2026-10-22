@@ -1,16 +1,32 @@
 /*
- * Wii2GameCube Phase 0: GameCube hardware + DOL-header reading diagnostic.
- * WARNING: this app NEVER executes a Wii binary; no IOS emulation exists.
- * This source is original, no Nintendo binaries or SDK headers included.
+ * Wii2GameCube Phase 1: GC-native host + Wii-target freestanding PPC guest.
+ *
+ * Trust boundary: ONLY built-in, project-authored guest code runs.
+ * This program does NOT execute arbitrary .dol files, emulate IOS, or run
+ * commercial Wii games or the original Wii userland.
  */
 #include <gccore.h>
 #include <fat.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <stdlib.h>
+#include <malloc.h>
 
-#define DOL_HEADER_LEN 256
+#define DOL_HEADER_LEN 256u
+#define MAX_GUEST_BYTES 4096u
 static unsigned char dol_header[DOL_HEADER_LEN] ATTRIBUTE_ALIGN(32);
+extern const unsigned char gcwcl_guest_start[];
+extern const unsigned char gcwcl_guest_end[];
+
+typedef uint32_t (*guest_step_fn)(uint32_t);
+
+/* Independent, host-compiled oracle for deterministic guest output. */
+static uint32_t expected_step(uint32_t frame) {
+    const uint32_t x = ((frame * 3u) + 7u) % 40u;
+    const uint32_t y = ((frame * 5u) + 11u) % 14u;
+    return (x << 16) | y;
+}
 
 static uint32_t be32(const unsigned char *p) {
     return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
@@ -19,13 +35,13 @@ static uint32_t be32(const unsigned char *p) {
 
 static void scan_guest_header(void) {
     if (!fatInitDefault()) {
-        printf("SD: no supported adapter/card detected\n");
+        printf("SD: adapter not found (not needed for embedded test)\n");
         return;
     }
-    printf("SD: mounted; looking for sd:/guest.dol\n");
+    printf("SD: mounted; optional header-only guest.dol\n");
     FILE *f = fopen("sd:/guest.dol", "rb");
     if (!f) {
-        printf("SD: guest.dol not present (optional)\n");
+        printf("SD: guest.dol absent (normal)\n");
         return;
     }
     const size_t count = fread(dol_header, 1, sizeof dol_header, f);
@@ -37,13 +53,13 @@ static void scan_guest_header(void) {
     const uint32_t entry = be32(dol_header + 0xE0);
     const uint32_t bss_addr = be32(dol_header + 0xD8);
     const uint32_t bss_size = be32(dol_header + 0xDC);
-    printf("DOL entry:  0x%08lx\n", (unsigned long)entry);
-    printf("DOL BSS:    0x%08lx, %lu bytes\n", (unsigned long)bss_addr,
+    printf("DOL entry: 0x%08lx BSS: 0x%08lx (%lu bytes)\n",
+           (unsigned long)entry, (unsigned long)bss_addr,
            (unsigned long)bss_size);
-    unsigned int sections = 0, mem2 = 0;
-    for (unsigned int i = 0; i < 18; i++) {
-        const uint32_t addr = be32(dol_header + 0x48 + 4 * i);
-        const uint32_t size = be32(dol_header + 0x90 + 4 * i);
+    unsigned int sections = 0u, mem2 = 0u;
+    for (unsigned int i = 0; i < 18u; i++) {
+        const uint32_t addr = be32(dol_header + 0x48 + 4u * i);
+        const uint32_t size = be32(dol_header + 0x90 + 4u * i);
         if (!size) continue;
         sections++;
         const uint64_t end = (uint64_t)addr + size;
@@ -51,8 +67,33 @@ static void scan_guest_header(void) {
     }
     if (bss_size && bss_addr >= 0x90000000UL &&
         (uint64_t)bss_addr + bss_size <= 0x94000000ULL) mem2++;
-    printf("DOL: %u sections; %u MEM2 consumers\n", sections, mem2);
-    printf("NOT LOADED/EXECUTED. Header scan only.\n");
+    printf("DOL header: %u sections, %u MEM2 sections\n", sections, mem2);
+    printf("Only metadata inspected, no .dol execution.\n");
+}
+
+/* The embedded bytes are Wii-compiled PPC instructions, not a function in
+ * the host's ELF. Copy to writable MEM1, synchronize dcache/icache, call.
+ * A guest must return normally using the same EABI calling convention.
+ */
+static guest_step_fn prepare_embedded_guest(void **allocated) {
+    const size_t size = (size_t)(gcwcl_guest_end - gcwcl_guest_start);
+    if (!size || size > MAX_GUEST_BYTES || (size & 3u)) {
+        printf("Guest: rejected invalid size (%lu bytes)\n", (unsigned long)size);
+        return NULL;
+    }
+    const size_t rounded = (size + 31u) & ~(size_t)31u;
+    unsigned char *code = (unsigned char *)memalign(32u, rounded);
+    if (!code) {
+        printf("Guest: MEM1 allocation failed\n");
+        return NULL;
+    }
+    memcpy(code, gcwcl_guest_start, size);
+    memset(code + size, 0, rounded - size);
+    DCFlushRange(code, rounded);
+    ICInvalidateRange(code, rounded);
+    *allocated = code;
+    printf("Wii PPC: loaded %lu code bytes into MEM1\n", (unsigned long)size);
+    return (guest_step_fn)code;
 }
 
 int main(int argc, char **argv) {
@@ -61,8 +102,8 @@ int main(int argc, char **argv) {
     GXRModeObj *mode = VIDEO_GetPreferredMode(NULL);
     void *xfb = MEM_K0_TO_K1(SYS_AllocateFramebuffer(mode));
     VIDEO_Configure(mode);
-    console_init(xfb, 20, 20, mode->fbWidth - 40, mode->xfbHeight - 40,
-                 mode->fbWidth * 2);
+    console_init(xfb, 20, 20, mode->fbWidth - 40,
+                 mode->xfbHeight - 40, mode->fbWidth * 2);
     VIDEO_ClearFrameBuffer(mode, xfb, COLOR_BLACK);
     VIDEO_SetNextFramebuffer(xfb);
     VIDEO_SetBlack(FALSE);
@@ -70,24 +111,45 @@ int main(int argc, char **argv) {
     VIDEO_WaitVSync();
     if (mode->viTVMode & VI_NON_INTERLACE) VIDEO_WaitVSync();
 
-    printf("\n  Wii2GameCube -- Phase 0 Diagnostic\n");
-    printf("  GameCube native executable (PowerPC)\n");
-    printf("  ------------------------------\n");
-    printf("  Video: OK if you can read this.\n");
+    printf("\nWii2GameCube - Phase 1 PowerPC guest\n");
+    printf("Host: GameCube native | Guest: Wii-built PPC\n");
+    printf("Controls and SD not required for this test.\n");
     scan_guest_header();
-    printf("\n  Goal: assess Wii homebrew portability.\n");
-    printf("  No Wii IOS/GPU/API emulation yet.\n");
-    printf("  No control input is required.\n");
-    printf("\n  Heartbeat (seconds): ");
 
-    unsigned long frames = 0;
+    void *guest_memory = NULL;
+    guest_step_fn guest = prepare_embedded_guest(&guest_memory);
+    if (guest) {
+        const uint32_t cases[] = {0u, 1u, 17u, 123u, 65535u};
+        unsigned int passed = 0u;
+        for (unsigned int i = 0u; i < sizeof cases / sizeof cases[0]; i++) {
+            const uint32_t result = guest(cases[i]);
+            const uint32_t expected = expected_step(cases[i]);
+            if (result == expected) passed++;
+            printf("Wii->GC %lu: (%lu,%lu) %s\n",
+                   (unsigned long)cases[i],
+                   (unsigned long)(result >> 16),
+                   (unsigned long)(result & 0xffffu),
+                   result == expected ? "PASS" : "FAIL");
+        }
+        printf("%s Wii-target PPC execution: %u/5\n",
+               passed == 5u ? "PASS" : "FAIL", passed);
+    } else {
+        printf("FAIL: embedded guest unavailable.\n");
+    }
+    printf("No Wii IOS/GX API emulation; no arbitrary DOL loading.\n");
+    printf("2D guest sprite coordinates, computed on GC:\n");
+
+    unsigned long frame = 0ul;
     for (;;) {
         VIDEO_WaitVSync();
-        frames++;
-        if (frames % 60 == 0) {
-            printf(".");
-            if ((frames / 60) % 30 == 0) printf("\n  Heartbeat: ");
+        frame++;
+        if (guest && frame % 60ul == 0ul) {
+            uint32_t p = guest((uint32_t)(frame / 60ul));
+            printf("sprite(%lu,%lu) ", (unsigned long)(p >> 16),
+                   (unsigned long)(p & 0xffffu));
+            if ((frame / 60ul) % 5ul == 0ul) printf("\n");
         }
     }
+    /* kept alive for entire process, no free(guest_memory) needed */
     return 0;
 }
