@@ -1,0 +1,41 @@
+name: DOL inspector tests and PowerPC homebrew builds
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  static-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run analyzer unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Python syntax check
+        run: python -m compileall -q tools tests
+  homebrew-build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitppc:20260503
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build GameCube diagnostic DOL
+        run: make -C gamecube_probe
+      - name: Build Wii proof fixture DOL
+        run: make -C wii_sample
+      - name: Verify artifact files
+        run: |
+          test -s gamecube_probe/gcwcl_probe.dol
+          test -s wii_sample/wii_guest_sample.dol
+      - name: Upload proof artifacts (NOT a compatibility demonstration)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wii2gamecube-phase0-dols
+          path: |
+            gamecube_probe/gcwcl_probe.dol
+            wii_sample/wii_guest_sample.dol
+          if-no-files-found: error
