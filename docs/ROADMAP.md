@@ -1,32 +1,38 @@
-# Roadmap técnico por demonstrações reprodutíveis
+# Wii2GameCube — marcos e evidências
 
-## Gate 0 — ambiente nativo
-- [x] CI devkitPPC, Wii/GC compilam sem erros.
-- [x] Capturas dos executáveis separados Wii/GC no Dolphin.
+## Gate 0: toolchain e homebrew independente
 
-## Gate 1 — execução cruzada PPC
-- [x] Guest de código isolado gerado com flags Wii (sem libogc/IOS).
-- [x] Cache e EABI, execução de 80 bytes de PPC no GC.
-- [x] **Demonstração visual no Dolphin GC:** captura 5/5 PASS enviada pelo usuário.
+- [x] Wii e GameCube compilam com devkitPPC e CI verde.
+- [x] Capturas de execução separada em Dolphin Wii e GC.
 
-## Gate 2 — arquivo Wii DOL de seção única (em desenvolvimento)
-- [x] Gerador DOL mínimo original + parser estrito em Python.
-- [x] Loader GameCube restrito a DOL embutido, alocado em MEM1.
-- [x] Gráficos 2D mínimos com sprite dirigido por guest PPC em YUY2.
-- [x] Testes de regressão, negativos e verificação determinística na compilação.
-- [ ] CI GitHub totalmente verde.
-- [ ] Teste dinâmico de DOL embutido em emulação GameCube automatizada.
-- [ ] Isolar ABI maior, dados e stack para programas Wii um pouco mais complexos.
+## Gate 1: PowerPC guest embutido
 
-## Gate 3 — aplicações Wii completas
-- [ ] Loader relocável com dados/BSS e API de vídeo estritamente definida.
-- [ ] Substituição de serviços mínimos para um homebrew open-source escolhido.
-- [ ] Medição de custo de vídeo/CPU/memória/SD.
-- [ ] Executar de fato um **homebrew Wii 2D completo** no GC e no Dolphin.
+- [x] Código freestanding produzido com `wii_rules`.
+- [x] Execução cruzada no Dolphin GameCube, captura `PASS 5/5`.
 
-## Gate 4 — WiiWare/Wii Menu
-- [ ] Avaliar requisitos reais de IOS, Hollywood, MEM2 e storage.
-- [ ] Não supor que memória SD expande RAM de maneira transparente.
-- [ ] WiiWare e Wii Menu continuam **fora do escopo de compatibilidade demonstrada**.
+## Gate 2: DOL Wii mínimo com vídeo
 
-O progresso é medido por testes de aceitação, não por quantidade/percentual artificial de commits. Não dependemos de repetir testes manuais do usuário.
+- [x] Empacotador + inspetor estrito de DOL de seção única.
+- [x] Carregamento e realocação do DOL controlado em MEM1.
+- [x] Cache/ABI/memória; execução de cinco vetores de teste.
+- [x] **Captura GameCube fornecida:** `Guest Wii DOL: 352 bytes`, `PASS 5/5`, quadrado branco visível.
+- [ ] Automatizar a emulação dinâmica no CI sem usuário.
+
+## Gate 3: guest Wii comandando animação 2D
+
+- [x] ABI de comandos de cena versionada, sem endereços brutos de hardware.
+- [x] Programa freestanding Wii produz 3 retângulos de cena e assinatura.
+- [x] Host GC executa guest, valida estrutura, limites e sentinelas; renderiza YUY2.
+- [x] Fallback para o sprite legado da fase 2 em caso de falha.
+- [x] Testes C nativos da mesma fonte, independentemente do binário GC.
+- [ ] CI para novo guest PPC compilado e DOL, artifact confirmado.
+- [ ] Emulação GC automática confirma resultado 5/5 e múltiplos sprites.
+
+## Gate 4: compatibilidade de um homebrew Wii completo
+
+- [ ] Testar um homebrew Wii open-source real com stack/dados/BSS e chamadas de sistema reais.
+- [ ] Abordagem para IOS/video compatível no GC (não apenas uma ABI criada para o projeto).
+- [ ] Testes de MEM1/ARAM/SD, com medições reais e testes no hardware GC.
+- [ ] Sem promessa de WiiWare ou Wii Menu antes de demonstração de dependências resolvidas.
+
+Por decisão do projeto, **não exigimos testes manuais recorrentes do usuário**. O teste visual prévio é evidência da fase 2. Progresso geral estimado não é porcentagem de linhas nem commits; metas experimentais são incertas.

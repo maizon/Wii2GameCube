@@ -1,31 +1,35 @@
-# Evidence and automated verification
+# Evidências e checklist de validação
 
-## Human screenshots already provided
+## Fase 2 — comprovada por screenshots de Dolphin GameCube
 
-Two earlier images proved **separate** Wii/GC native program booting in Dolphin modes.
+Captura 21/10/2026:
+- `Guest Wii DOL: 352 bytes | TEXT 0x80018000 rebased to MEM1`
+- `Wii PPC: loaded 96 code bytes into MEM1`
+- `PASS Wii-target PPC execution: 5/5`
+- `2D guest sprite: small moving square in YUY2 XFB`
+- Retângulo inferior com sprite claro, renderizado no framebuffer.
 
-A later screenshot from the user proved that the Phase 1 GameCube host loaded 80 Wii-configured PPC instruction bytes into MEM1 and obtained **5/5 PASS** plus changing sprite coordinates. This is experimental cross-target PPC execution. It is **not** the execution of the Wii homebrew's libogc/IOS code on GC.
+O outro screenshot confirma somente `wii_guest_sample.dol` no Dolphin Wii.
 
-## Phase 2 (no manual user testing required)
+**Interpretação precisa:** o host GC executa uma função PPC original, empacotada em DOL mínimo de Wii. Não foi demonstrada execução de código Nintendo, IOS, MEM2 ou bibliotecas Wii.
 
-The CI automatically:
-1. Compiles `guest_probe/guest.c` using Wii-target `wii_rules`.
-2. Checks for return instruction and that the `.text.guest` section requires no relocation.
-3. Wraps this compiled code into a minimal, strictly validated Wii-format `.dol`.
-4. Confirms `dol_inspect.py` accepts its file layout.
-5. Repackages the DOL and compares bytes for reproducibility.
-6. Builds the GC application embedding the **entire DOL file**, not raw code.
-7. Builds the separate standalone Wii homebrew as a baseline.
-8. Publishes both DOLs plus the guest fixture in a GitHub Actions artifact.
+## Fase 3 — critérios automáticos
 
-The new GC program validates the header of its embedded DOL, rebases its only text section to an allocated MEM1 region, invalidates instruction cache, executes the pure Wii-target function, compares five vectors and draws a moving 2D square to the GameCube VI XFB in YUY2 format.
+- Testar a função `wii_guest_scene` da **mesma fonte** compilada nativamente com `cc`.
+- Verificar o tamanho de `Wii2GcScene` (96 bytes) e os campos 32 bits da ABI.
+- Testar chamadas determinísticas para frames 0, 1, 17, 123, 65535, UINT32_MAX.
+- Verificar três sprites com coordenadas/dimensões dentro de 0..1000.
+- Compilar código Wii PowerPC com `-mrvl`, sem relocations em `.text.guest`.
+- Validar integridade e empacotamento determinístico do DOL.
+- Construir host GC com dois DOLs embutidos e fallback da fase 2.
 
-**Important:** GitHub Actions compilation and file structure tests alone do NOT prove successful execution of this new build in Dolphin GC, because emulation is not yet part of CI. We will not ask the user to manually test as a prerequisite to continuing. The Phase 1 image is the verified dynamic baseline.
+## Fase 3 — dinâmica no Dolphin GC (ainda falta automação)
 
-## Constraints
+A nova tela deve conter:
+```
+Scene Wii DOL: ...
+Wii->GC scene ABI: 5/5 PASS
+Phase 3: Wii guest generates 3 rects/frame
+```
 
-- The guest DOL is generated from OUR ORIGINAL project-authored freestanding code; no IOS, libogc, system calls or arbitrary game files are executed.
-- Its `0x80018000` original address is metadata and code is copied to newly allocated memory, not written directly there.
-- Exactly one TEXT section, maximum 4096 bytes of code, no BSS/DATA, entry exactly first instruction, no relocations.
-- A real Wii `wii_guest_sample.dol` is built but **not loaded by GC**. Commercial WiiWare and Wii Menu require independent compatibility work.
-- Future step: add emulator-driven GameCube execution to CI if a stable reproducible Dolphin runner is available.
+O vídeo deverá exibir três sprites animados na região inferior, em lugar do sprite único da fase 2. Não confundir build verde com execução real: o teste automático do emulador continua pendente.
