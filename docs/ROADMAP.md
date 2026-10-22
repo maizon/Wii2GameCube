@@ -1,32 +1,41 @@
-# Plano verificável de pesquisa
+# Roteiro medido por evidências
 
-Critério de sucesso geral: registrar no GameCube real (ou Dolphin GameCube, antes do hardware) a execução de pelo menos uma instrução controlada vinda de um binário de teste produzido na configuração Wii, sem recompilar esse binário para GameCube.
+## Gate 0 — builds e execução separada
 
-## Gate 0 — teste de infraestrutura
-- [x] Analisador de cabeçalho DOL + testes sintéticos.
-- [x] Fonte de diagnóstico GameCube e guest mínimo Wii.
-- [ ] Compilação PowerPC em CI confirmada.
-- [ ] Diagnóstico GameCube inicia no hardware ou Dolphin GC.
-- [ ] Guest de Wii inicia no Wii ou Dolphin Wii.
+- [x] Analisador DOL, verificações sintéticas.
+- [x] CI compilou os dois DOLs nativos (Wii e GameCube).
+- [x] Usuário enviou screenshot do guest **no modo Wii** (tela de texto).
+- [x] Usuário enviou screenshot do programa GC **no modo GameCube** (heartbeat).
+- [ ] Execução confirmada em GameCube físico (ainda apenas Dolphin).
 
-## Gate 1 — prova de PPC compartilhado
-- [ ] Especificar ABI para guest freestanding (sem IOS e sem libogc).
-- [ ] Produzir binário determinístico de teste com script de link e endereços explícitos.
-- [ ] Projetar trampoline numa região reservada/isolada do loader (proteger stack, IRQ e framebuffer).
-- [ ] Validar campos DOL, segmentos, alinhamento, entry, sobreposição e cache antes da execução.
-- [ ] Retornar valor de um guest PPC em GC; registrar execução e retorno, sem acesso a MMIO Wii.
-- [ ] Comparar instruções assembly e comportamentos; documentar prova.
+## Gate 1 — código PowerPC originalmente produzido com flags Wii no GameCube
 
-## Gate 2 — Wii userland mínimo
-- [ ] Identificar rotinas chamadas pelo guest Wii de teste; identificar requisitos reais.
-- [ ] Projetar camada de vídeo 2D adaptada apenas às APIs observadas.
-- [ ] Investigar chamadas IOS com base em traços, não prometer emulação completa.
-- [ ] Demonstrar animação 2D Wii de autoria própria no GC.
+- [x] Criar um guest freestanding, fonte aberta, sem dependências de IOS/libogc.
+- [x] Compilar Wii PowerPC com `-mrvl`, extrair somente seção `.text.guest`.
+- [x] Projetar chamada EABI que retorna `uint32_t` com um argumento `uint32_t`.
+- [x] Embutir os bytes Wii como dados no programa GC.
+- [x] Copiar para um buffer alinhado na arena GC, sincronizar caches e executar por função-ponte.
+- [x] Validar tamanho, alinhamento e rejeitar relocations no código guest em CI.
+- [ ] Verificar build fase 1 e integridade do artifact com logs GitHub.
+- [ ] **Validar em Dolphin modo GameCube**: execução correta em cinco vetores e coordenadas animadas.
+- [ ] Verificar GameCube físico, memória e timing.
 
-## Gate 3 — escopo expandido
-- [ ] Gerenciador de assets e orçamento RAM.
-- [ ] Testes de GC ARAM e SD, latência/throughput medidos.
-- [ ] Avaliar WiiWare 2D apenas se houver evidência técnica e direitos para análise.
-- [ ] Wii Menu original: fora de escopo até termos resultados concretos de Gates 1–2.
+Este primeiro guest NÃO é um binário DOL completo de Wii. A cópia de código freestanding não é prova de compatibilidade com o restante do sistema Wii.
 
-Sem mecanismos para contornar proteção, obter chaves, distribuir ISOs, WADs, NAND ou conteúdo protegido.
+## Gate 2 — um DOL Wii mínimo, com ABI restrita
+
+- [ ] Compilar DOL Wii freestanding com apenas uma seção e entry explicitamente acordado.
+- [ ] Criar loader restrito que parseie header, valide limites, *não* carregue código arbitrário.
+- [ ] Definir modelo de relocação PIC ou transformação segura de endereços.
+- [ ] Validar endianness, calling convention, stack, relocations, dcache/icache.
+- [ ] Tentar execução Wii DOL de autoria própria no GC sem recompilá-lo para GC.
+- [ ] Só então expandir para um sprite 2D desenhado na tela.
+
+## Gate 3 — avaliação de software Wii real
+
+- [ ] Instrumentar dependências reais de libogc, IOS, MEM2, vídeo, áudio.
+- [ ] Investigar ARAM/SD para recursos; medir latência real.
+- [ ] Selecionar um homebrew 2D com código disponível e licença compatível.
+- [ ] WiiWare 2D, Wii Menu: apenas se houver provas e permissões; metas de longo prazo.
+
+**Sem promessa de progresso em percentuais arbitrários**: cada gate tem critérios de aceitação observáveis. Controles são adiados conforme escolha do projeto.
