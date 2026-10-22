@@ -1,4 +1,4 @@
-# GameCube host executes an isolated, embedded freestanding Wii-target PPC routine.
+# GameCube host executes an isolated, embedded freestanding Wii-target DOL.
 ifeq ($(strip $(DEVKITPRO)),)
 $(error Please set DEVKITPRO, for example /opt/devkitpro)
 endif
@@ -16,10 +16,10 @@ LIBS := -L$(LIBOGC_LIB) -lfat -logc -lm
 .PHONY: all clean
 all: $(TARGET).dol
 
-../guest_probe/guest.bin: ../guest_probe/source/guest.c ../guest_probe/Makefile
+../guest_probe/guest.dol: ../guest_probe/source/guest.c ../guest_probe/Makefile ../tools/pack_guest_dol.py
 	$(MAKE) -C ../guest_probe all
 
-source/guest_blob.o: source/guest_blob.S ../guest_probe/guest.bin
+source/guest_blob.o: source/guest_blob.S ../guest_probe/guest.dol
 	$(CC) $(MACHDEP) -c -o $@ $<
 
 source/%.o: source/%.c
