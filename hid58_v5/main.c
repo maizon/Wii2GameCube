@@ -41,7 +41,7 @@ static u8 *readbuf=NULL;
 static volatile int read_finished=0;
 static volatile s32 read_ret=0;
 static int read_pending=0, orphaned=0;
-static s32 open_ret=-999, device_fd=-1, usb_ret=-999;
+static s32 open_ret=-999, device_fd=-1, usb_ret=-999, active_dev_id=-1;
 static u8 endpoint=0; static u16 pktlen=0;
 static usb_device_entry hid_devs[MAX_DEVS],all_devs[MAX_DEVS],old_hid[MAX_DEVS],old_all[MAX_DEVS];
 static int num_hid=0,num_all=0,old_hid_count=-1,old_all_count=-1;
@@ -254,6 +254,7 @@ static void attempt_open(usb_device_entry *e,int from_hid_list){
     open_ret=USB_OpenDevice(e->device_id,e->vid,e->pid,&device_fd);
     logmsg("DEVICE_OPEN rc=%ld fd=%ld",(long)open_ret,(long)device_fd);
     if(open_ret<0 || device_fd<0){device_fd=-1;return;}
+    active_dev_id=e->device_id;
     usb_devdesc desc;
     memset(&desc,0,sizeof(desc));
     s32 r=USB_GetDescriptors(device_fd,&desc);
@@ -268,7 +269,7 @@ static void attempt_open(usb_device_entry *e,int from_hid_list){
     if(!endpoint){
         logmsg("DEVICE no interrupt-IN endpoint");
         USB_CloseDevice(&device_fd);
-        device_fd=-1;
+        device_fd=-1;active_dev_id=-1;
     }else{
         if(pktlen<1)pktlen=8;
         if(pktlen>REPORT_BYTES)pktlen=REPORT_BYTES;
@@ -293,6 +294,21 @@ static void enumerate(void){
         if(!mounted)first_mount=1;
         memcpy(old_all,all_devs,sizeof(old_all));old_all_count=num_all;save_requested=1;
     }
+    // Device removed from the bus: wait for async callback before closing.
+    if(device_fd>=0){
+        int present=0;
+        for(int i=0;i<num_all;i++)if(all_devs[i].device_id==active_dev_id)present=1;
+        if(!present && !orphaned){
+            logmsg("DEVICE DETACH id=%08lX read_pending=%d",
+                   (unsigned long)active_dev_id,read_pending);
+            orphaned=1;
+            if(!read_pending){
+                USB_CloseDevice(&device_fd);
+                device_fd=-1;active_dev_id=-1;endpoint=0;pktlen=0;
+                orphaned=0;logmsg("DETACH closed cleanly");
+            }else logmsg("DETACH pending read; keeping buffer until callback");
+        }
+    }
     // If Twin is visible in ALL (but not HID), test its descriptors too.
     int selected=-1;
     usb_device_entry *arr=hid_devs;
@@ -313,7 +329,14 @@ static void enumerate(void){
 static void handle_reports(void){
     if(read_finished){
         read_finished=0;read_pending=0;
-        if(orphaned){logmsg("READ returned after detach rc=%ld",(long)read_ret);return;}
+        if(orphaned){
+            logmsg("READ returned after detach rc=%ld",(long)read_ret);
+            USB_CloseDevice(&device_fd);
+            device_fd=-1;active_dev_id=-1;endpoint=0;pktlen=0;
+            orphaned=0;
+            logmsg("DETACH completed: safe to enumerate next port");
+            return;
+        }
         int n=read_ret;
         if(n>REPORT_BYTES)n=REPORT_BYTES;
         if(n>0){
