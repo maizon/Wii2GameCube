@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<app version="1"><name>HID58 FULLLOG V3</name><coder>Maizon</coder><version>3</version><short_description>Full logging of IOS58 USB and gamepad</short_description><long_description>All USB enumeration, IOS HID and VEN status, VID/PID, raw gamepad reports. Press 1 to mark USB swap, PLUS to save log to FAT USB, HOME to exit. No NAND writes.</long_description><ahb_access/></app>
