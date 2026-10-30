@@ -9,7 +9,7 @@ TARGET := hid58_probe
 OBJ := source/main.o
 CFLAGS := -O2 -g -Wall -Wextra -std=gnu11 $(MACHDEP) -I$(LIBOGC_INC)
 LDFLAGS := -g $(MACHDEP)
-LIBS := -L$(LIBOGC_LIB) -logc -lwiiuse -lbte -lm
+LIBS := -L$(LIBOGC_LIB) -lwiiuse -lbte -logc -lm
 .PHONY: all clean
 all: $(TARGET).dol
 $(TARGET).elf: $(OBJ)
