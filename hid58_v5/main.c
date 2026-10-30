@@ -30,7 +30,7 @@ static unsigned logsz=0, overwritten=0;
 static u64 start_time;
 static unsigned frame=0, read_count=0, change_count=0;
 static char phase[100]="BOOT", save_status[96]="RAM only";
-static int dirty=1, mounted=0, save_requested=0;
+static int dirty=1, mounted=0, save_requested=0, first_mount=1;
 static unsigned last_save_ms=0, last_mount_ms=0;
 static char p_hid[] __attribute__((aligned(32)))="/dev/usb/hid";
 static char p_ven[] __attribute__((aligned(32)))="/dev/usb/ven";
@@ -160,7 +160,8 @@ static void probe_nodes(const char *phase_name){
 static int save_usb(int try_mount){
     unsigned now=clockms();
     if(!mounted){
-        if(!try_mount && now-last_mount_ms<10000)return 0;
+        if(!try_mount && !first_mount && now-last_mount_ms<10000)return 0;
+        first_mount=0;
         last_mount_ms=now;
         // Never format any disk. Mount only existing FAT filesystem.
         if(!fatMountSimple("usb",&__io_usbstorage)){
@@ -289,6 +290,7 @@ static void enumerate(void){
     }
     if(num_all!=old_all_count || memcmp(all_devs,old_all,sizeof(old_all))!=0){
         change_count++;log_devlist("ALL",all_devs,num_all,rc_all);
+        if(!mounted)first_mount=1;
         memcpy(old_all,all_devs,sizeof(old_all));old_all_count=num_all;save_requested=1;
     }
     // If Twin is visible in ALL (but not HID), test its descriptors too.
@@ -380,6 +382,7 @@ int main(void){
             mounted=0;
             fatUnmount("usb:");
             last_mount_ms=0;
+            first_mount=1;
             logmsg("USER forced FAT remount");
             save_requested=1;
         }
