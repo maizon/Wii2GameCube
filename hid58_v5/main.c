@@ -36,7 +36,7 @@ static char p_hid[] __attribute__((aligned(32)))="/dev/usb/hid";
 static char p_ven[] __attribute__((aligned(32)))="/dev/usb/ven";
 static char p_oh0[] __attribute__((aligned(32)))="/dev/usb/oh0";
 static char p_oh1[] __attribute__((aligned(32)))="/dev/usb/oh1";
-static u32 versionbuf[8] __attribute__((aligned(32)));
+static u32 *versionbuf=NULL;  // MUST reside in MEM2, not MEM1 BSS.
 static u8 *readbuf=NULL;
 static volatile int read_finished=0;
 static volatile s32 read_ret=0;
@@ -101,7 +101,7 @@ static void log_devlist(const char *which,usb_device_entry *items,int n,s32 rc){
 }
 static void render(void){
     printf("\x1b[2J\x1b[H");
-    printf("MAIZON USB HID V5 - FULL DIAGNOSTIC\n");
+    printf("MAIZON USB HID V5.1 - MEM2 FIX\n");
     printf("IOS %u rev %u | %u s | Log %u bytes | resets %u\n",
       (unsigned)IOS_GetVersion(),(unsigned)IOS_GetRevision(),
       clockms()/1000,logsz,overwritten);
@@ -133,16 +133,17 @@ static void probe_one(const char *name,char *path){
         logmsg("IOS_NODE %s open=%ld",name,(long)fd);
         return;
     }
+    if(!versionbuf){logmsg("ERROR: MEM2 version buffer missing, skipping ioctl"); IOS_Close(fd);return;}
     if(!strcmp(name,"HID") || !strcmp(name,"VEN")){
         // IOCTL 6 is NOT a version query on the VEN/USBv5 controller.
         // Follow libogc's safe HID version probing; VEN: GETVERSION=0 only.
-        memset(versionbuf,0,sizeof(versionbuf));
+        memset(versionbuf,0,32);
         s32 v4=-999;
         if(!strcmp(name,"HID"))
             v4=IOS_Ioctl(fd,6,NULL,0,NULL,0);
         s32 v5=-999;
         if(v4!=0x40001)
-            v5=IOS_Ioctl(fd,0,NULL,0,versionbuf,sizeof(versionbuf));
+            v5=IOS_Ioctl(fd,0,NULL,0,versionbuf,32);
         logmsg("IOS_NODE %s open=%ld v4_ioctl6=%ld v5_ioctl0=%ld version_out=%08lX",
            name,(long)fd,(long)v4,(long)v5,(unsigned long)versionbuf[0]);
     } else {
@@ -208,9 +209,14 @@ static void poll_wifi(void){
        logmsg("NET initialization failed result=%ld",(long)net_result);
        net_started=0;net_result=-999;return;
     }
+    logmsg("NET callback=%ld status=%ld hostip=%08lX",
+        (long)net_result,(long)net_get_status(),(unsigned long)net_gethostip());
     net_fd=net_socket(AF_INET,SOCK_DGRAM,IPPROTO_UDP);
     logmsg("NET UDP socket fd=%d",net_fd);
-    if(net_fd<0){net_started=0;return;}
+    if(net_fd<0){
+        logmsg("NET FAILED socket=%d, WiFi unavailable; USB FAT logging still active",net_fd);
+        net_started=0;return;
+    }
     int yes=1;
     int opt=net_setsockopt(net_fd,SOL_SOCKET,SO_BROADCAST,&yes,sizeof(yes));
     memset(&broadcast_addr,0,sizeof(broadcast_addr));
@@ -367,27 +373,36 @@ int main(void){
     VIDEO_SetNextFramebuffer(fb);
     VIDEO_SetBlack(FALSE);VIDEO_Flush();VIDEO_WaitVSync();
     start_time=gettime();
-    logmsg("MAIZON USB-HID V5 start IOS=%u REV=%u",
+    logmsg("MAIZON USB-HID V5.1 MEM2 ioctl fix IOS=%u REV=%u",
        (unsigned)IOS_GetVersion(),(unsigned)IOS_GetRevision());
-    logmsg("BUILD 2026-10-29 | USB read only; no NAND/IOS writes");
+    logmsg("BUILD 2026-10-29 | MEM2 32-byte ioctl GETVERSION | no NAND writes");
+    // USB_VEN and USB_HID v5 reject output buffers in MEM1 with IPC_EINVAL (-4).
+    // Allocate before probing, keeping both version and report buffers alive.
+    u32 arena_lo=(u32)SYS_GetArena2Lo();
+    u32 dma_start=(arena_lo+31u)&~31u;
+    if(dma_start+32+REPORT_BYTES<=(u32)SYS_GetArena2Hi()){
+        versionbuf=(u32*)dma_start;
+        readbuf=(u8*)(dma_start+32);
+        SYS_SetArena2Lo((void*)(dma_start+32+REPORT_BYTES));
+        memset(versionbuf,0,32);
+        memset(readbuf,0,REPORT_BYTES);
+        logmsg("MEM2 buffers version=%08lX report=%08lX; both 32-byte aligned",
+            (unsigned long)(u32)versionbuf,(unsigned long)(u32)readbuf);
+    }else{
+        logmsg("ERROR MEM2 allocation impossible; v5 ioctl not available");
+    }
     logmsg("EXPECTED Twin VID=0810 PID=0001; run with other HID reference");
     setphase("Probing USB IOS before initializing libogc USB/WPAD");
     probe_nodes("BEFORE USB_Init / WPAD_Init");
     usb_ret=USB_Initialize();
-    logmsg("USB_Initialize rc=%ld",(long)usb_ret);
+    logmsg("USB_Initialize rc=%ld (does not guarantee HID/VEN v5 host success)",(long)usb_ret);
+    logmsg("Note: -4 on HID/VEN IOS_Open after USB_Initialize may mean libogc owns handle 0");
     probe_nodes("AFTER USB_Init BEFORE WPAD_Init");
     WPAD_Init();
     SYS_SetPowerCallback(power_cb);
     probe_nodes("AFTER WPAD_Init");
-    // MEM2 DMA buffer, 32-byte alignment. Keep until process exits.
-    u32 lo=(u32)SYS_GetArena2Lo();
-    u32 aligned=(lo+31u)&~31u;
-    if(aligned+REPORT_BYTES<=(u32)SYS_GetArena2Hi()){
-        readbuf=(u8*)aligned;
-        SYS_SetArena2Lo((void*)(aligned+REPORT_BYTES));
-        memset(readbuf,0,REPORT_BYTES);
-        logmsg("DMA buffer MEM2 at %08lX",(unsigned long)aligned);
-    } else { logmsg("ERROR no DMA MEM2");setphase("Cannot allocate MEM2");}
+    // Buffers allocated in MEM2 before any version probe; never freed during pending read.
+    if(readbuf)logmsg("DMA ready in MEM2; IOS service probe completed");
     if(usb_ret>=0)enumerate();
     logmsg("BASELINE completed; auto FAT USB every 5s, network OFF");
     render();
