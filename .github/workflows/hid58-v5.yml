@@ -1,0 +1,32 @@
+name: Maizon USB HID V5 diagnosis
+on:
+  push:
+    branches:
+      - fix/hidtest-ios58-v5-diagnostic
+    paths:
+      - 'hid58_v5/**'
+      - '.github/workflows/hid58-v5.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitppc:20260503
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build IOS58 USB V5 diagnostic
+        run: make -C hid58_v5
+      - name: Package FAT USB app
+        run: |
+          test -s hid58_v5/boot.dol
+          python3 tools/dol_inspect.py hid58_v5/boot.dol
+          mkdir -p dist/apps/MAIZON_USB_V5
+          cp hid58_v5/boot.dol dist/apps/MAIZON_USB_V5/boot.dol
+          cp hid58_v5/meta.xml dist/apps/MAIZON_USB_V5/meta.xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MAIZON_USB_HID_V5_FOR_USB
+          path: dist/
+          if-no-files-found: error
