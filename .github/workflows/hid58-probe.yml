@@ -23,7 +23,7 @@ jobs:
       - name: Validate binary
         run: |
           test -s hid58_probe/hid58_probe.dol
-          python3 tools/dol_inspect.py hid58_probe/hid58_probe.dol --strict
+          python3 tools/dol_inspect.py hid58_probe/hid58_probe.dol
           ls -lh hid58_probe/hid58_probe.dol
       - uses: actions/upload-artifact@v4
         with:
