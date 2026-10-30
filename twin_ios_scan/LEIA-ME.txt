@@ -1,0 +1,17 @@
+MAIZON Twin IOS Scan v1.1 - diagnostico especifico do caso Wii Twin USB.
+
+Copie apps/MAIZON_TWIN_SCAN/ para a RAIZ do seu pendrive FAT.
+Abra no Homebrew Channel. Use as duas portas USB do Wii: o pendrive para o app e o receptor de controle na outra.
+O app examina SOMENTE IOS55 (instalado e ja recarregado com sucesso no seu Wii).
+Log: usb:/apps/MAIZON_TWIN_SCAN/log.txt
+Se nao conseguir montar o pendrive apos retornar ao IOS58, fotografe a tela.
+
+A enumeração é universal: qualquer VID/PID é registrado. Armazenamento detectado e protegido de leituras HID.
+A leitura HID assincrona esta DESLIGADA por padrao para evitar travamentos adicionais.
+Apenas para compilacoes separadas, use make EXTRA=-DSCAN_REPORTS (experimentacao, nao recomendada).
+IOS37 e IOS36 continuam desligados; SCAN_EXTRA somente se decidir testar explicitamente.
+
+Resultado: 'TWIN ... APARECEU' indica enumeração 0810:0001; outros VID/PID podem aparecer como ATTACH.
+Se o OH0 nao estiver presente no IOS55, a lista USB pode falhar e isso e um dado diagnostico, NAO prova que o dongle esta ruim.
+Nem deteccao no IOS55 nem USB_Initialize=0 fazem o Nintendont IOS58 reconhecer o gamepad automaticamente.
+SEM alteracoes na NAND, SEM instalacao de IOS, SEM SD, SEM HUB.

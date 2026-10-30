@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<app version="1">
+<name>MAIZON Twin IOS Scan v1.1</name>
+<coder>Maizon</coder><version>1.1</version>
+<short_description>Diagnostico universal USB, IOS55 sem NAND/SD</short_description>
+<long_description>Enumera todos os dispositivos do IOS55 sem filtrar VID/PID, detalha descritores, restaura IOS58 e salva log no pendrive. Captura HID desativada por seguranca nesta primeira versao.</long_description>
+<ahb_access/>
+</app>

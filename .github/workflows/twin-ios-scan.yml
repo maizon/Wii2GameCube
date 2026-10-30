@@ -1,0 +1,32 @@
+name: MAIZON Twin IOS55 Universal Scan v1.1
+on:
+  push:
+    branches:
+      - fix/hidtest-ios58-v5-diagnostic
+    paths:
+      - 'twin_ios_scan/**'
+      - '.github/workflows/twin-ios-scan.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitppc:20260503
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile universal IOS55 scanner
+        run: make -C twin_ios_scan
+      - name: Package Wii USB ready
+        run: |
+          test -s twin_ios_scan/boot.dol
+          mkdir -p dist/apps/MAIZON_TWIN_SCAN
+          cp twin_ios_scan/boot.dol dist/apps/MAIZON_TWIN_SCAN/boot.dol
+          cp twin_ios_scan/meta.xml dist/apps/MAIZON_TWIN_SCAN/meta.xml
+          cp twin_ios_scan/LEIA-ME.txt dist/LEIA-ME.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MAIZON_TWIN_IOS_SCAN_V1_1_USB
+          path: dist/
+          if-no-files-found: error
