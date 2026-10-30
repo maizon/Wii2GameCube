@@ -21,6 +21,8 @@
 #include <ogc/usb.h>
 #include <ogc/usbstorage.h>
 #include <fat.h>
+#include "deep_probe.h"
+#include "recovery_journal.h"
 
 #ifndef TITLE_ID
 #define TITLE_ID(x,y) (((u64)(x) << 32) | (y))
@@ -102,7 +104,7 @@ static void probe_nodes(const char *tag)
 static usb_device_entry cur[MAXD], prv[MAXD], hidl[MAXD], stor[MAXD];
 static int ncur = 0, nprv = 0;
 static s32 e_all = -99999, e_hid = -99999, e_storage_global = -99999;
-static int max_detected_58 = 0, max_detected_55 = 0, seen_twin_all = 0;
+static int max_detected_58 = 0, max_detected_55 = 0, seen_twin_all = 0, twin_seen_oh0 = 0;
 static int direct_counts[2][LEGACY_CLASSES] = {{-999, -999, -999}, {-999, -999, -999}};
 static s32 direct_rc[2][LEGACY_CLASSES] = {{-999, -999, -999}, {-999, -999, -999}};
 static int direct_seen[2][LEGACY_CLASSES];
@@ -315,7 +317,7 @@ static void probe_oh0_port_status(const char *phase)
     s32 fd=IOS_Open(path,0);
     lg("IOS55 PORT STATUS %s: oh0 OPEN=%d",phase,(int)fd);
     if (fd<0) return;
-    for (int port=1;port<=2;port++) {
+    for (int port=0;port<=1;port++) {
         u32 raw=0xDEADBEEF;
         lg("  IOCTLV20 GETRHPORTSTATUS porta indice=%d: INICIO",port);
         s32 rc=IOS_IoctlvFormat(legacy_heap,fd,20,"b:d",port,&raw,sizeof(raw));
@@ -380,6 +382,7 @@ static void direct_scan_host(int host, int classidx, int detailed)
             }
             if (vid==0x0810 && pid==0x0001) {
                 seen_twin_all=1;
+                if(host==0)twin_seen_oh0=1;
                 lg("!!! TWIN 0810:0001 VIA OH%d IOS55 !!!",host);
             }
             // So tenta descritores ao localizar uma interface HID.
@@ -407,7 +410,14 @@ static void direct_scan_ohci(int detailed)
 // ----------------------------------------------------------- scan
 static void scan_loaded_ios(u32 n)
 {
+    int v4_found=0;
     lg("=========== IOS%u: INICIO SCAN UNIVERSAL ===========",n);
+    if(n==55) {
+        lg("AUTONOMOUS V2: sondando HIDv4 independentemente da libogc");
+        v4_found=maizon_hidv4_discover(lg,1700);
+        if(v4_found>0)seen_twin_all=1;
+        lg("HIDv4 resultado=%d (1=Twin,0=nenhum,<0=erro)",v4_found);
+    }
     probe_nodes("antes USB_Initialize");
     s32 r = USB_Initialize();
     lg("USB_Initialize = %d (nao significa detectar uma porta)",(int)r);
@@ -471,7 +481,18 @@ static void scan_loaded_ios(u32 n)
         }
         VIDEO_WaitVSync();
     }
-    if(n==55) probe_oh0_port_status("DEPOIS");
+    if(n==55) {
+        probe_oh0_port_status("DEPOIS");
+        if(twin_seen_oh0 && v4_found<=0){
+            lg("RECOVERY: Twin visto no OH0, mas nao no HIDv4; reset apenas do handle 0810:0001");
+            int rr=maizon_reset_known_twin(lg);
+            lg("RECOVERY: reset do dispositivo rc=%d",rr);
+            if(rr==0) {
+                direct_scan_ohci(1);
+                maizon_hidv4_discover(lg,1500);
+            }
+        }else lg("RECOVERY: reset de dispositivo omitido (alvo nao enumerado em OH0 ou ja capturado)");
+    }
     lg("IOS%u RESUMO: max_any=%d max_hid=%d max_class8=%d twin=%d",
        n,max_all,max_hid,max_storage,seen_twin);
     if (n==55) {
@@ -519,10 +540,11 @@ int main(void)
     if (rmode->viTVMode & VI_NON_INTERLACE) VIDEO_WaitVSync();
     printf("\x1b[2;0H");
 
-    lg("MAIZON TWIN IOS SCAN v1.3 PORT READ | IOS inicial %d rev %d", IOS_GetVersion(), IOS_GetRevision());
+    lg("MAIZON USB AUTONOMOUS V2.0 ALPHA | IOS inicial %d rev %d", IOS_GetVersion(), IOS_GetRevision());
     lg("Mantenha o Twin plugado e o controle ligado. Nao precisa tocar em nada.");
     lg("Sem NAND/SD. IOCTLV 12 (somente leitura) em OH0/OH1 de IOS55.");
-    lg("IOS55: testara IOCTLV20 GETRHPORTSTATUS (nao garantido nem validado).");
+    lg("IOS55: HIDv4, OH0/OH1, status porta 0/1, reset condicionado ao Twin enumerado.");
+    lg("Nao executa IOCTLV25: parametros e indexacao nao validados.");
     if (IOS_GetVersion()==58) scan_loaded_ios(58);
     else lg("IOS inicial nao 58; baseline IOS58 indisponivel.");
 
@@ -531,7 +553,12 @@ int main(void)
 #else
     static const u32 cand[] = { 55 };           // 55 ja comprovado que carrega
 #endif
-    for (unsigned i = 0; i < sizeof cand / sizeof cand[0]; i++) scan_ios(cand[i]);
+    int skip_legacy=maizon_journal_before_ios55(lg,logbuf,loglen);
+    if(skip_legacy) {
+        lg("AUTORECOVERY: pulando IOS55 nesta execucao devido a marker pendente");
+    } else {
+        for (unsigned i = 0; i < sizeof cand / sizeof cand[0]; i++) scan_ios(cand[i]);
+    }
 
     lg("=========== RESUMO GERAL ===========");
     lg("IOS58 max dispositivos libogc=%d | IOS55 max=%d | Twin=%d",max_detected_58,max_detected_55,seen_twin_all);
@@ -552,7 +579,10 @@ int main(void)
         if (!saved) { fatUnmount("usb:"); sleep(1); }
     }
     lg("log USB salvo=%d (1=sim). Sem SD. Fim em 45 s.", saved);
-    if (saved) save_to("usb", "MAIZON_TWIN_SCAN", NULL, "log.txt");
+    if(saved) {
+        maizon_journal_commit(lg);
+        save_to("usb", "MAIZON_TWIN_SCAN", NULL, "log.txt");
+    }
     if (!saved) lg("FALHA DE LOG USB: fotografe as linhas da tela, inclusive NODES e LIST.");
     sleep(45);
     return 0;
