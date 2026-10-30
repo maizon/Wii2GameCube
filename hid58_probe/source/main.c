@@ -102,7 +102,14 @@ int main(void) {
 
     render();
     // MEM2 is mandatory for USB v5 DMA buffers, always 32-byte aligned.
-    g_report=(u8*)SYS_AllocArena2MemLo(REPORT_MAX,32);
+    // Reserve 32-byte aligned DMA memory directly from Wii MEM2 arena.
+    // Avoid dependence on newer libogc SYS_AllocArena2MemLo versions.
+    u32 lo=(u32)SYS_GetArena2Lo();
+    u32 aligned=(lo+31u)&~31u;
+    if(aligned+REPORT_MAX<=(u32)SYS_GetArena2Hi()) {
+        g_report=(u8*)aligned;
+        SYS_SetArena2Lo((void*)(aligned+REPORT_MAX));
+    }
     if (!g_report) { set_stage("Cannot allocate MEM2 buffer"); render(); goto idle; }
     memset(g_report,0,REPORT_MAX);
     set_stage("USB_Initialize (supports HID v5 via libogc)");
