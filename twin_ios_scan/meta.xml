@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <app version="1">
-<name>MAIZON USB Port Diagnostic v1.3</name><coder>Maizon</coder><version>1.3</version>
+<name>MAIZON USB Autonomous Recovery v2.0-alpha</name><coder>Maizon</coder><version>2.0-alpha</version>
 <short_description>IOS58/IOS55 OHCI: porta, hid, dispositivos</short_description>
 <long_description>Scan automatico e read-only de IOS58/IOS55, USBv0 OH0/OH1, consulta experimental GETRHPORTSTATUS (IOCTLV20) do IOS55, GETVERSION HID v4. Nenhuma alteracao na NAND, sem SD/hub. Salva log no pendrive.</long_description>
 <ahb_access/>
