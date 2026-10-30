@@ -1,0 +1,32 @@
+name: HID58 FULLLOG V3
+on:
+  push:
+    branches:
+      - fix/hidtest-ios58-v5-diagnostic
+    paths:
+      - 'hid58_logger/**'
+      - '.github/workflows/hid58-fulllog.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitppc:20260503
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Wii HID58 FullLog v3
+        run: make -C hid58_logger
+      - name: Prepare USB package
+        run: |
+          test -s hid58_logger/hid58_fulllog_v3.dol
+          python3 tools/dol_inspect.py hid58_logger/hid58_fulllog_v3.dol
+          mkdir -p dist/apps/HID58_FULLLOG_V3
+          cp hid58_logger/hid58_fulllog_v3.dol dist/apps/HID58_FULLLOG_V3/boot.dol
+          cp hid58_logger/meta.xml dist/apps/HID58_FULLLOG_V3/meta.xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HID58-FULLLOG-V3
+          path: dist/
+          if-no-files-found: error
