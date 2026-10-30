@@ -1,4 +1,4 @@
-name: MAIZON Twin USB Deep Scan v1.2
+name: MAIZON Twin USB Port Scan v1.3
 on:
   push:
     branches:
@@ -16,7 +16,7 @@ jobs:
       image: devkitpro/devkitppc:20260503
     steps:
       - uses: actions/checkout@v4
-      - name: Compile IOS58/IOS55 OH0/OH1 universal scanner
+      - name: Compile targeted IOS55 root-hub port diagnostic
         run: make -C twin_ios_scan
       - name: Package Wii USB ready
         run: |
@@ -27,6 +27,6 @@ jobs:
           cp twin_ios_scan/LEIA-ME.txt dist/LEIA-ME.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: MAIZON_TWIN_DEEP_SCAN_V1_2_USB
+          name: MAIZON_TWIN_PORT_SCAN_V1_3_USB
           path: dist/
           if-no-files-found: error

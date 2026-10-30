@@ -1,31 +1,27 @@
-MAIZON USB DEEP SCAN 1.2 — evolucao do MESMO app Twin IOS Scan.
-Build baseada em devkitPro (powerpc DOL), testada via GitHub Actions; Wii real nao validado ate receber log.
+MAIZON TWIN USB PORT DIAGNOSTIC v1.3
+EVOLUCAO do mesmo aplicativo usado nas versoes 1.1 e 1.2. Sem outro homebrew.
 
-OBJETIVO
-Confirmar se algum dispositivo USB aparece nas pilhas IOS58 (VEN/HID v5) ou IOS55 (OH0/OH1 USBv0).
-Nenhum filtro de VID/PID. Compara classes ALL(0), HID(3), MASS(8) e logs independentes.
+IMPORTANTE: Seu teste da v1.2 encontrou OH1=057E:0305.
+Esse VID/PID e o RADIO BLUETOOTH INTERNO DO WII, NAO o receptor Twin.
+OH0 (bus externo) class0=0; IOS58 HID=0, VEN com pendrive apenas.
+IOS55 HID abriu com fd=3 na v1.2, embora tivesse retornado -6 antes.
 
-INSTRUCOES
-- Extraia apps/MAIZON_TWIN_SCAN/ para a raiz do pendrive FAT.
-- Receptor Twin na outra porta USB, controle ligado e pareado, sem hub.
-- Execute no Homebrew Channel diretamente.
-- O app mede primeiro IOS58 sem reload, depois IOS55 instalado (5663 ja testado), depois volta ao IOS58.
-- Registra em USB:/apps/MAIZON_TWIN_SCAN/log.txt. Caso falhe, fotografe a tela.
-- Nao altera NAND, nao instala IOS, nao depende de SD, nao usa controle durante o scan.
+O que v1.3 acrescenta:
+- IOS55 /dev/usb/hid: consulta read-only IOCTL 6 USBv4 GETVERSION; valor 0x40001 comprova v4.
+- IOS55 /dev/usb/oh0: ioctlv 20 USBV0_GETRHPORTSTATUS (somente leitura)
+  para indices 1 e 2, valores brutos e interpretacao OHCI marcada PROVISORIA.
+  Esta operacao consta no WiiBrew, mas a entrada/indexacao ainda e incerta;
+  podem ocorrer erros ou, em casos extremos, travamentos no IOS. Nao ha garantia.
+- Consultas de porta feitas duas vezes (ANTES/DEPOIS do scan).
+- Preserva demais sondagens IOS58 x IOS55 e OH0/OH1 classes 0/3/8.
+- NUNCA envia IOCTLV25, RESET USB ou escrita em registrador.
 
-DETALHES
-- IOS55: IOCTLV 12 GETDEVLIST DOCUMENTADO no /dev/usb/oh0 e /dev/usb/oh1.
-- Console mostra resultados distintos por controlador: OH0, OH1, classes 0,3,8, codigo de retorno.
-- IOS58: usa USB_GetDeviceList da libogc sobre HID/VEN v5, separadamente das consultas legadas.
-- Tenta ler descritores SOMENTE para interfaces HID enumeradas; sem leituras interrupt assíncronas.
-- USB_Initialize=0 NAO significa detectar sinal fisico.
-- CC/PES/LSDA dos registradores OHCI NAO SAO LIDOS: requer acesso Starlet. Nao sao inventados.
-- Classe8 no VEN v5 e apenas pista e NAO prova que o item e armazenamento.
-- Retornos vazios nao provam problema de energia ou defeito do receptor.
-- Chamadas IOS podem bloquear dentro do firmware; nao existe garantia de recuperacao pelo app.
+INSTALACAO: Copie a pasta apps do ZIP para a raiz de pendrive FAT.
+Execute pelo Homebrew Channel com o controle Twin conectado na outra porta.
+Log USB:/apps/MAIZON_TWIN_SCAN/log.txt (ou fotografe a tela se travar).
+NUNCA confunda 057E:0305 com o Twin: ele e o Bluetooth interno, usa OH1.
+Seu Twin Full-Speed e 0810:0001 no Android.
 
-RESULTADO MAIS IMPORTANTE
-"USBv0 /dev/usb/oh1 GETDEVLIST class=0: rc=... count=..."
-"USBv0 /dev/usb/oh0 GETDEVLIST class=0: rc=... count=..."
-"LIBOGC IOS58 class0=ALL ..."
-Se Twin aparece em IOS55 e nao em IOS58, a diferenca e diagnostica, nao conserta o Nintendont.
+A operacao GETRHPORTSTATUS via IOS55 nao e acesso direto ao kernel Starlet.
+Se retornar rc<0 ou status imutavel, nao atribua conclusao eletrica.
+Nao mexe NAND, nao instala IOS, nao requer SD, hub ou PC.
