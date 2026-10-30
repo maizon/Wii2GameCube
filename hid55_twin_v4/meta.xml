@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<app version="1"><name>Maizon Twin IOS55 USBv4</name><coder>Maizon</coder><version>1.0</version><short_description>Detect Twin USB 0810:0001 with IOS55 legacy HID v4</short_description><long_description>Automatic 25-second legacy HID USBv4 scan and capture of Twin input packets. Restores IOS58 for USB log saving. Requires installed IOS55. No NAND modification, no SD or Wiimote button needed.</long_description></app>
