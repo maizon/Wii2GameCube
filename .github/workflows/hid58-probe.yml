@@ -1,0 +1,32 @@
+name: HIDTest IOS58 USB HID v5 probe
+on:
+  push:
+    branches:
+      - fix/hidtest-ios58-v5-diagnostic
+    paths:
+      - 'hid58_probe/**'
+      - '.github/workflows/hid58-probe.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitppc:20260503
+    steps:
+      - uses: actions/checkout@v4
+      - name: Expose toolchain
+        run: echo "${DEVKITPPC}/bin" >> "$GITHUB_PATH"
+      - name: Compile and link v5 diagnostic
+        run: make -C hid58_probe all
+      - name: Validate binary
+        run: |
+          test -s hid58_probe/hid58_probe.dol
+          python3 tools/dol_inspect.py hid58_probe/hid58_probe.dol --strict
+          ls -lh hid58_probe/hid58_probe.dol
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HIDTest-IOS58-v5-DOL
+          path: hid58_probe/hid58_probe.dol
+          if-no-files-found: error
