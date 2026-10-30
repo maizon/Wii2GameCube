@@ -1,4 +1,4 @@
-// MAIZON TWIN IOS SCAN v1.2 - investigacao IOS58 + IOS55 e duas OHCI
+// MAIZON TWIN IOS SCAN v1.3 - IOS55 GETRHPORTSTATUS + HID v4 inquiry (read-only)
 // Para cada IOS candidato (padrao: so 55; compile com -DSCAN_EXTRA para 37/36):
 //   recarrega o IOS, sonda os nos /dev/usb/*, faz USB_Initialize (libogc),
 //   lista TODOS os dispositivos por ~20 s, abre dispositivos nao-mass-storage, analisa descritores.
@@ -287,6 +287,50 @@ static void close_all(void)
     }
 }
 
+// --------------------------------------------------- Targeted IOS55 service checks
+// IOS55 foi visto retornando HID=-6 em outro teste e HID=3 no log v1.2.
+// Abertura por si so nao significa HID v4: ioctl 6 deve retornar 0x40001.
+static void probe_legacy_hid_version(void)
+{
+    static char n[] ATTRIBUTE_ALIGN(32) = "/dev/usb/hid";
+    s32 fd=IOS_Open(n,0);
+    lg("IOS55 HID version: OPEN=%d",(int)fd);
+    if (fd<0) return;
+    s32 r=IOS_Ioctl(fd,6,NULL,0,NULL,0); // USBv4 GETVERSION, read-only
+    lg("IOS55 HID ioctl6 GETVERSION rc=0x%08X (%d)%s",
+       (unsigned)r,(int)r,
+       r==0x40001?" CONFIRMADO USBv4": " nao confirma USBv4");
+    IOS_Close(fd);
+}
+
+// https://wiibrew.org/wiki//dev/usb/oh0:
+// IOCTLV20 USBV0_IOCTLV_GETRHPORTSTATUS, IN u8 port, OUT u32 status.
+// Detalhes e indexacao ainda marcados "check" na wiki.
+// SOMENTE LEITURA: absolutamente NENHUM reset, enable ou comando 25.
+// Em IOS55 somente, nunca no IOS58.
+static void probe_oh0_port_status(const char *phase)
+{
+    if (legacy_heap<0) return;
+    static char path[] ATTRIBUTE_ALIGN(32)="/dev/usb/oh0";
+    s32 fd=IOS_Open(path,0);
+    lg("IOS55 PORT STATUS %s: oh0 OPEN=%d",phase,(int)fd);
+    if (fd<0) return;
+    for (int port=1;port<=2;port++) {
+        u32 raw=0xDEADBEEF;
+        lg("  IOCTLV20 GETRHPORTSTATUS porta indice=%d: INICIO",port);
+        s32 rc=IOS_IoctlvFormat(legacy_heap,fd,20,"b:d",port,&raw,sizeof(raw));
+        lg("  IOCTLV20 porta=%d rc=%d raw=%08X",port,(int)rc,(unsigned)raw);
+        if(rc>=0 && raw!=0xDEADBEEF) {
+            lg("   [OHCI interpretacao PROVISORIA] CCS=%u PES=%u PSS=%u POCI=%u PRS=%u LSDA=%u CSC=%u",
+               !!(raw&1),!!(raw&2),!!(raw&4),!!(raw&8),
+               !!(raw&16),!!(raw&512),!!(raw&65536));
+        } else {
+            lg("   Porta %d: sem status confiavel; ioctl ou formato pode nao ser suportado.",port);
+        }
+    }
+    IOS_Close(fd);
+}
+
 // ------------------------------------------------------ USBv0 OHCI probe
 // Codigo documentado em WiiBrew (/dev/usb/oh0), implementado como na libogc:
 // IOS_IoctlvFormat(...,12,"bb:dd", max_devices, interface_class, count, buffer).
@@ -372,7 +416,9 @@ static void scan_loaded_ios(u32 n)
     if (n == 55) {
         legacy_heap = iosCreateHeap(8192);
         lg("USBv0 heap=%d | sondagem DIRETA GETDEVLIST OH0 e OH1",legacy_heap);
+        probe_legacy_hid_version();
         direct_scan_ohci(1);
+        probe_oh0_port_status("ANTES");
     } else {
         lg("IOS58: biblioteca utiliza VEN/HID v5; /dev/usb/oh0 usa protocolo diferente.");
         lg("IOS58: nao chamar IOCTLV 12 legado nem ler registradores fisicos do Starlet.");
@@ -425,6 +471,7 @@ static void scan_loaded_ios(u32 n)
         }
         VIDEO_WaitVSync();
     }
+    if(n==55) probe_oh0_port_status("DEPOIS");
     lg("IOS%u RESUMO: max_any=%d max_hid=%d max_class8=%d twin=%d",
        n,max_all,max_hid,max_storage,seen_twin);
     if (n==55) {
@@ -472,10 +519,10 @@ int main(void)
     if (rmode->viTVMode & VI_NON_INTERLACE) VIDEO_WaitVSync();
     printf("\x1b[2;0H");
 
-    lg("MAIZON TWIN IOS SCAN v1.2 DEEP | IOS inicial %d rev %d", IOS_GetVersion(), IOS_GetRevision());
+    lg("MAIZON TWIN IOS SCAN v1.3 PORT READ | IOS inicial %d rev %d", IOS_GetVersion(), IOS_GetRevision());
     lg("Mantenha o Twin plugado e o controle ligado. Nao precisa tocar em nada.");
     lg("Sem NAND/SD. IOCTLV 12 (somente leitura) em OH0/OH1 de IOS55.");
-    lg("CCS/PES fisicos NAO disponiveis pelas interfaces comuns; nao inventar estados.");
+    lg("IOS55: testara IOCTLV20 GETRHPORTSTATUS (nao garantido nem validado).");
     if (IOS_GetVersion()==58) scan_loaded_ios(58);
     else lg("IOS inicial nao 58; baseline IOS58 indisponivel.");
 
@@ -489,7 +536,7 @@ int main(void)
     lg("=========== RESUMO GERAL ===========");
     lg("IOS58 max dispositivos libogc=%d | IOS55 max=%d | Twin=%d",max_detected_58,max_detected_55,seen_twin_all);
     lg("OHCI IOS55 informa dispositivos via IOCTLV sem depender do HID service.");
-    lg("Sem leitura eletrica CCS/PES (exigiria acesso Starlet privilegiado).");
+    lg("Port status acessado via interface IOS55 IOCTLV20 quando suportado; campos hipoteticos.");
     if(!seen_twin_all) lg("NAO ENUMERADO pelos metodos testados; causa eletrica NAO determinada.");
     lg("=========== RESTAURANDO IOS58 ===========");
     s32 r = IOS_ReloadIOS(58);
