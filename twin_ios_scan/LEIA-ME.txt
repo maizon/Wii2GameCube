@@ -27,3 +27,14 @@ Se retornar rc<0 ou status imutavel, nao atribua conclusao eletrica.
 Nao mexe NAND, nao instala IOS, nao requer SD, hub ou PC.
 
 MAIZON USB Autonomous Recovery v2 is experimental and awaiting integration.
+
+
+V2 ALPHA — AUTOMACAO EXPERIMENTAL
+- Acrescenta HIDv4 GetDeviceChange e captura de report do Twin quando realmente identificado.
+- Reset IOCTL29 somente de handle ja enumerado e identificado no OH0 como 0810:0001. NAO faz reset do root hub.
+- Consultas OH0 indices 0 e 1; indice 2 removido.
+- Checkpoint IOS58: log_before_ios55.txt + ios55_pending.txt criados no USB antes de reload.
+- Se houve interrupcao na execucao anterior, IOS55 sera pulado e o arquivo apagado quando o log final for salvo.
+- Se a escrita no USB falhar, nao ha garantia de log. Em IOS55 o pendrive pode ficar indisponivel.
+- CHAMADAS IOS sincrônicas podem travar: app nao oferece garantia de recuperacao automatica.
+- Codigo novo compilado CI nao significa funcionamento comprovado em hardware Wii real.
