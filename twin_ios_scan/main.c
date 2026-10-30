@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <gccore.h>
+#include <ogc/lwp_watchdog.h>
 #include <ogc/es.h>
 #include <ogc/usb.h>
 #include <ogc/usbstorage.h>
