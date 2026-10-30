@@ -25,3 +25,5 @@ Seu Twin Full-Speed e 0810:0001 no Android.
 A operacao GETRHPORTSTATUS via IOS55 nao e acesso direto ao kernel Starlet.
 Se retornar rc<0 ou status imutavel, nao atribua conclusao eletrica.
 Nao mexe NAND, nao instala IOS, nao requer SD, hub ou PC.
+
+MAIZON USB Autonomous Recovery v2 is experimental and awaiting integration.
