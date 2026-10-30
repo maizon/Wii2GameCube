@@ -1,17 +1,31 @@
-MAIZON Twin IOS Scan v1.1 - diagnostico especifico do caso Wii Twin USB.
+MAIZON USB DEEP SCAN 1.2 — evolucao do MESMO app Twin IOS Scan.
+Build baseada em devkitPro (powerpc DOL), testada via GitHub Actions; Wii real nao validado ate receber log.
 
-Copie apps/MAIZON_TWIN_SCAN/ para a RAIZ do seu pendrive FAT.
-Abra no Homebrew Channel. Use as duas portas USB do Wii: o pendrive para o app e o receptor de controle na outra.
-O app examina SOMENTE IOS55 (instalado e ja recarregado com sucesso no seu Wii).
-Log: usb:/apps/MAIZON_TWIN_SCAN/log.txt
-Se nao conseguir montar o pendrive apos retornar ao IOS58, fotografe a tela.
+OBJETIVO
+Confirmar se algum dispositivo USB aparece nas pilhas IOS58 (VEN/HID v5) ou IOS55 (OH0/OH1 USBv0).
+Nenhum filtro de VID/PID. Compara classes ALL(0), HID(3), MASS(8) e logs independentes.
 
-A enumeração é universal: qualquer VID/PID é registrado. Armazenamento detectado e protegido de leituras HID.
-A leitura HID assincrona esta DESLIGADA por padrao para evitar travamentos adicionais.
-Apenas para compilacoes separadas, use make EXTRA=-DSCAN_REPORTS (experimentacao, nao recomendada).
-IOS37 e IOS36 continuam desligados; SCAN_EXTRA somente se decidir testar explicitamente.
+INSTRUCOES
+- Extraia apps/MAIZON_TWIN_SCAN/ para a raiz do pendrive FAT.
+- Receptor Twin na outra porta USB, controle ligado e pareado, sem hub.
+- Execute no Homebrew Channel diretamente.
+- O app mede primeiro IOS58 sem reload, depois IOS55 instalado (5663 ja testado), depois volta ao IOS58.
+- Registra em USB:/apps/MAIZON_TWIN_SCAN/log.txt. Caso falhe, fotografe a tela.
+- Nao altera NAND, nao instala IOS, nao depende de SD, nao usa controle durante o scan.
 
-Resultado: 'TWIN ... APARECEU' indica enumeração 0810:0001; outros VID/PID podem aparecer como ATTACH.
-Se o OH0 nao estiver presente no IOS55, a lista USB pode falhar e isso e um dado diagnostico, NAO prova que o dongle esta ruim.
-Nem deteccao no IOS55 nem USB_Initialize=0 fazem o Nintendont IOS58 reconhecer o gamepad automaticamente.
-SEM alteracoes na NAND, SEM instalacao de IOS, SEM SD, SEM HUB.
+DETALHES
+- IOS55: IOCTLV 12 GETDEVLIST DOCUMENTADO no /dev/usb/oh0 e /dev/usb/oh1.
+- Console mostra resultados distintos por controlador: OH0, OH1, classes 0,3,8, codigo de retorno.
+- IOS58: usa USB_GetDeviceList da libogc sobre HID/VEN v5, separadamente das consultas legadas.
+- Tenta ler descritores SOMENTE para interfaces HID enumeradas; sem leituras interrupt assíncronas.
+- USB_Initialize=0 NAO significa detectar sinal fisico.
+- CC/PES/LSDA dos registradores OHCI NAO SAO LIDOS: requer acesso Starlet. Nao sao inventados.
+- Classe8 no VEN v5 e apenas pista e NAO prova que o item e armazenamento.
+- Retornos vazios nao provam problema de energia ou defeito do receptor.
+- Chamadas IOS podem bloquear dentro do firmware; nao existe garantia de recuperacao pelo app.
+
+RESULTADO MAIS IMPORTANTE
+"USBv0 /dev/usb/oh1 GETDEVLIST class=0: rc=... count=..."
+"USBv0 /dev/usb/oh0 GETDEVLIST class=0: rc=... count=..."
+"LIBOGC IOS58 class0=ALL ..."
+Se Twin aparece em IOS55 e nao em IOS58, a diferenca e diagnostica, nao conserta o Nintendont.
