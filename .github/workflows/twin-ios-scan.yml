@@ -1,4 +1,4 @@
-name: MAIZON Twin USB Port Scan v1.3
+name: MAIZON Twin USB Autonomous Recovery v2.0-alpha
 on:
   push:
     branches:
@@ -27,6 +27,6 @@ jobs:
           cp twin_ios_scan/LEIA-ME.txt dist/LEIA-ME.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: MAIZON_TWIN_PORT_SCAN_V1_3_USB
+          name: MAIZON_TWIN_AUTONOMOUS_V2_ALPHA_USB
           path: dist/
           if-no-files-found: error
