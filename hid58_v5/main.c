@@ -133,11 +133,22 @@ static void probe_one(const char *name,char *path){
         logmsg("IOS_NODE %s open=%ld",name,(long)fd);
         return;
     }
-    memset(versionbuf,0,sizeof(versionbuf));
-    s32 v4=IOS_Ioctl(fd,6,NULL,0,NULL,0);
-    s32 v5=IOS_Ioctl(fd,0,NULL,0,versionbuf,sizeof(versionbuf));
-    logmsg("IOS_NODE %s open=%ld v4_ioctl6=%ld v5_ioctl0=%ld version_out=%08lX",
-       name,(long)fd,(long)v4,(long)v5,(unsigned long)versionbuf[0]);
+    if(!strcmp(name,"HID") || !strcmp(name,"VEN")){
+        // IOCTL 6 is NOT a version query on the VEN/USBv5 controller.
+        // Follow libogc's safe HID version probing; VEN: GETVERSION=0 only.
+        memset(versionbuf,0,sizeof(versionbuf));
+        s32 v4=-999;
+        if(!strcmp(name,"HID"))
+            v4=IOS_Ioctl(fd,6,NULL,0,NULL,0);
+        s32 v5=-999;
+        if(v4!=0x40001)
+            v5=IOS_Ioctl(fd,0,NULL,0,versionbuf,sizeof(versionbuf));
+        logmsg("IOS_NODE %s open=%ld v4_ioctl6=%ld v5_ioctl0=%ld version_out=%08lX",
+           name,(long)fd,(long)v4,(long)v5,(unsigned long)versionbuf[0]);
+    } else {
+        // OH0/OH1 have different ioctl numbers, so only probe IOS_Open.
+        logmsg("IOS_NODE %s open=%ld (no unsupported ioctls)",name,(long)fd);
+    }
     IOS_Close(fd);
 }
 static void probe_nodes(const char *phase_name){
