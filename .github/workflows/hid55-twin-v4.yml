@@ -1,0 +1,32 @@
+name: Maizon Twin IOS55 HID v4
+on:
+  push:
+    branches:
+      - fix/hidtest-ios58-v5-diagnostic
+    paths:
+      - 'hid55_twin_v4/**'
+      - '.github/workflows/hid55-twin-v4.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: devkitpro/devkitppc:20260503
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile legacy v4 USB app
+        run: make -C hid55_twin_v4
+      - name: Package Wii USB ready app
+        run: |
+          test -s hid55_twin_v4/boot.dol
+          mkdir -p dist/apps/MAIZON_HID55_TWIN
+          cp hid55_twin_v4/boot.dol dist/apps/MAIZON_HID55_TWIN/boot.dol
+          cp hid55_twin_v4/meta.xml dist/apps/MAIZON_HID55_TWIN/meta.xml
+          cp hid55_twin_v4/LEIA-ME.txt dist/LEIA-ME.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MAIZON_TWIN_IOS55_V4_PRONTO_USB
+          path: dist/
+          if-no-files-found: error
