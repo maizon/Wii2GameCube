@@ -1,4 +1,4 @@
-// MAIZON TWIN IOS SCAN v1.1 (mesmo projeto: enumeração universal e correções)
+// MAIZON TWIN IOS SCAN v1.2 - investigacao IOS58 + IOS55 e duas OHCI
 // Para cada IOS candidato (padrao: so 55; compile com -DSCAN_EXTRA para 37/36):
 //   recarrega o IOS, sonda os nos /dev/usb/*, faz USB_Initialize (libogc),
 //   lista TODOS os dispositivos por ~20 s, abre dispositivos nao-mass-storage, analisa descritores.
@@ -26,7 +26,9 @@
 #define TITLE_ID(x,y) (((u64)(x) << 32) | (y))
 #endif
 
-#define SCAN_MS 20000
+#define SCAN_MS 15000
+#define BASELINE_MS 7000
+#define LEGACY_CLASSES 3
 #define MAXD 32
 #define MAXT 3
 
@@ -99,7 +101,12 @@ static void probe_nodes(const char *tag)
 // --------------------------------------------------- device tracking
 static usb_device_entry cur[MAXD], prv[MAXD], hidl[MAXD], stor[MAXD];
 static int ncur = 0, nprv = 0;
-static s32 e_all = 0, e_hid = 0;
+static s32 e_all = -99999, e_hid = -99999, e_storage_global = -99999;
+static int max_detected_58 = 0, max_detected_55 = 0, seen_twin_all = 0;
+static int direct_counts[2][LEGACY_CLASSES] = {{-999, -999, -999}, {-999, -999, -999}};
+static s32 direct_rc[2][LEGACY_CLASSES] = {{-999, -999, -999}, {-999, -999, -999}};
+static int direct_seen[2][LEGACY_CLASSES];
+static int legacy_heap = -1;
 
 static int get_list(usb_device_entry *b, u8 cls, s32 *le)
 {
@@ -280,70 +287,174 @@ static void close_all(void)
     }
 }
 
+// ------------------------------------------------------ USBv0 OHCI probe
+// Codigo documentado em WiiBrew (/dev/usb/oh0), implementado como na libogc:
+// IOS_IoctlvFormat(...,12,"bb:dd", max_devices, interface_class, count, buffer).
+// O IOS55 nao tem /dev/usb/hid/ven: por isso consultar OH0 E OH1 em separado.
+// Consultas APENAS GETDEVLIST; nao muda porta, configuracao nem endereco.
+static void direct_scan_host(int host, int classidx, int detailed)
+{
+    static const u8 cls[LEGACY_CLASSES] = {0, 3, 8};
+    static char node[32] ATTRIBUTE_ALIGN(32);
+    u8 cnt = 0;
+    int prev = direct_counts[host][classidx];
+    s32 prevrc = direct_rc[host][classidx];
+    if (legacy_heap < 0) {
+        if (detailed) lg("USBv0: sem IOS heap, nao consultado");
+        return;
+    }
+    snprintf(node, sizeof node, "/dev/usb/oh%d", host);
+    s32 fd = IOS_Open(node, 0);
+    if (fd < 0) {
+        if (prevrc != fd || detailed) lg("USBv0 %s class=%u: OPEN=%d", node, cls[classidx], (int)fd);
+        direct_rc[host][classidx] = fd;
+        return;
+    }
+    u32 *buf = (u32 *)iosAlloc(legacy_heap, MAXD*8);
+    if (!buf) { lg("USBv0 %s: iosAlloc falhou", node); IOS_Close(fd); return; }
+    memset(buf, 0, MAXD*8);
+    s32 rc = IOS_IoctlvFormat(legacy_heap, fd, 12, "bb:dd",
+                            (int)MAXD, (int)cls[classidx],
+                            &cnt, sizeof(cnt), buf, MAXD*8);
+    if (cnt > MAXD) {
+        lg("USBv0 %s classe=%u: count invalido=%u, limitado a %u",
+           node, cls[classidx], cnt, MAXD);
+        cnt = MAXD;
+    }
+    if (detailed || prev != cnt || prevrc != rc)
+        lg("USBv0 %s GETDEVLIST class=%u: rc=%d count=%u",
+           node, cls[classidx], (int)rc, (unsigned)cnt);
+    direct_rc[host][classidx] = rc;
+    if (rc >= 0) {
+        direct_counts[host][classidx] = cnt;
+        if ((int)cnt > direct_seen[host][classidx]) direct_seen[host][classidx] = cnt;
+        for (u32 i=0; i<cnt; ++i) {
+            u16 vid=(u16)(buf[2*i+1]>>16), pid=(u16)buf[2*i+1];
+            if (detailed || prev != cnt) {
+                lg("   USBv0 oh%d class=%u item=%u vid:pid=%04X:%04X",
+                   host, cls[classidx], (unsigned)i, vid, pid);
+            }
+            if (vid==0x0810 && pid==0x0001) {
+                seen_twin_all=1;
+                lg("!!! TWIN 0810:0001 VIA OH%d IOS55 !!!",host);
+            }
+            // So tenta descritores ao localizar uma interface HID.
+            // Isso evita interferir no pendrive de jogos/logs e deixa outras classes intactas.
+            if (cls[classidx]==3 && (detailed || prev != cnt) &&
+                vid!=0 && pid!=0) {
+                usb_device_entry e;
+                memset(&e,0,sizeof e);
+                e.vid=vid; e.pid=pid;
+                e.device_id=host==0 ? USB_OH0_DEVICE_ID : USB_OH1_DEVICE_ID;
+                open_dev(&e);
+            }
+        }
+    } else direct_counts[host][classidx] = -1;
+    iosFree(legacy_heap, buf);
+    IOS_Close(fd);
+}
+static void direct_scan_ohci(int detailed)
+{
+    for (int host=0; host<2; ++host)
+        for (int ci=0; ci<LEGACY_CLASSES; ++ci)
+            direct_scan_host(host,ci,detailed);
+}
+
 // ----------------------------------------------------------- scan
+static void scan_loaded_ios(u32 n)
+{
+    lg("=========== IOS%u: INICIO SCAN UNIVERSAL ===========",n);
+    probe_nodes("antes USB_Initialize");
+    s32 r = USB_Initialize();
+    lg("USB_Initialize = %d (nao significa detectar uma porta)",(int)r);
+    if (r < 0) { lg("USB init falhou; nao sera feita listagem"); return; }
+    probe_nodes("apos USB_Initialize");
+    if (n == 55) {
+        legacy_heap = iosCreateHeap(8192);
+        lg("USBv0 heap=%d | sondagem DIRETA GETDEVLIST OH0 e OH1",legacy_heap);
+        direct_scan_ohci(1);
+    } else {
+        lg("IOS58: biblioteca utiliza VEN/HID v5; /dev/usb/oh0 usa protocolo diferente.");
+        lg("IOS58: nao chamar IOCTLV 12 legado nem ler registradores fisicos do Starlet.");
+    }
+    ncur=0; nprv=0;
+    e_all=-99999; e_hid=-99999; e_storage_global=-99999;
+    memset(prv, 0, sizeof prv);
+    u32 t0 = ms(), tp=0, last_direct=ms();
+    int seen_twin=0, max_all=0, max_hid=0, max_storage=0;
+    int last_all=-999, last_hid=-999, last_storage=-999;
+    while (ms() - t0 < (n == 58 ? BASELINE_MS : SCAN_MS)) {
+        u32 now=ms();
+        if (now-tp >= 650) {
+            tp=now;
+            int a=get_list(cur,0,&e_all);
+            int h=get_list(hidl,3,&e_hid);
+            int st=get_list(stor,8,&e_storage_global);
+            if (a!=last_all || h!=last_hid || st!=last_storage) {
+                lg("LIBOGC IOS%u class0=ALL:%d class3=HID:%d class8=STORAGE_HINT:%d",
+                   n,a,h,st);
+                last_all=a;last_hid=h;last_storage=st;
+            }
+            if (a>max_all)max_all=a;
+            if (h>max_hid)max_hid=h;
+            if (st>max_storage)max_storage=st;
+            if (a>=0) {
+                ncur=a;
+                for (int i=0; i<ncur; i++) {
+                    if (in_list(&cur[i],prv,nprv))continue;
+                    int in_hid=in_list(&cur[i],hidl,h>0?h:0);
+                    lg("+++ LIBOGC IOS%u ATTACH %04X:%04X devid=%d HID=%d",
+                       n,cur[i].vid,cur[i].pid,(int)cur[i].device_id,in_hid);
+                    if (cur[i].vid==0x0810 && cur[i].pid==0x0001) {
+                        seen_twin=1;seen_twin_all=1;
+                        lg("!!! TWIN 0810:0001 APARECEU IOS%u !!!",n);
+                    }
+                    // Classe 8 sob VEN v5 nao e filtro fiel de armazenamento.
+                    // Abrir SOMENTE entradas HID: nao interferir no pendrive.
+                    if (in_hid) open_dev(&cur[i]);
+                }
+                for(int i=0;i<nprv;i++)
+                    if(!in_list(&prv[i],cur,ncur))
+                        lg("--- IOS%u DETACH %04X:%04X",n,prv[i].vid,prv[i].pid);
+                memcpy(prv,cur,sizeof cur);nprv=ncur;
+            }
+        }
+        if (n==55 && now-last_direct>=3500) {
+            last_direct=now;
+            direct_scan_ohci(0);
+        }
+        VIDEO_WaitVSync();
+    }
+    lg("IOS%u RESUMO: max_any=%d max_hid=%d max_class8=%d twin=%d",
+       n,max_all,max_hid,max_storage,seen_twin);
+    if (n==55) {
+        for(int host=0;host<2;host++) {
+            lg("IOS55 USBv0 OH%d: class0 rc=%d count=%d max=%d",
+               host,(int)direct_rc[host][0],direct_counts[host][0],direct_seen[host][0]);
+            lg("IOS55 USBv0 OH%d: class3 rc=%d count=%d max=%d",
+               host,(int)direct_rc[host][1],direct_counts[host][1],direct_seen[host][1]);
+            lg("IOS55 USBv0 OH%d: class8 rc=%d count=%d max=%d",
+               host,(int)direct_rc[host][2],direct_counts[host][2],direct_seen[host][2]);
+        }
+        max_detected_55=max_all;
+    } else max_detected_58=max_all;
+    close_all();
+    USB_Deinitialize();
+    usleep(300000);
+}
+
 static void scan_ios(u32 n)
 {
     lg("=========== SCAN IOS%u ===========", n);
     u32 rev = 0;
-    int st = ios_state(n, &rev);
-    if (st == 0) { lg("IOS%u nao instalado: pulando", n); return; }
-    if (st < 0)  { lg("IOS%u e STUB (rev %u): pulando", n, rev); return; }
-    lg("IOS%u rev %u instalado; recarregando", n, rev);
-
-    s32 r = IOS_ReloadIOS(n);
-    lg("IOS_ReloadIOS(%u) = %d, agora IOS%d rev %d", n, (int)r, IOS_GetVersion(), IOS_GetRevision());
-    if (IOS_GetVersion() != (s32)n) return;
-
-    probe_nodes("apos reload");
-    r = USB_Initialize();
-    lg("USB_Initialize = %d (nao prova existencia de OHCI/HID)", (int)r);
-    if (r < 0) { lg("USB init falhou; pulando lista"); return; }
-    nprv = 0;
-    memset(prv, 0, sizeof prv);
-
-    u32 t0 = ms(), tp = 0;
-    int seen_twin = 0;
-    while (ms() - t0 < SCAN_MS) {
-        u32 now = ms();
-        if (now - tp >= 500) {
-            tp = now;
-            int a = get_list(cur, 0, &e_all);
-            int h = get_list(hidl, 3, &e_hid);
-            s32 e_storage = 0;
-            int s = get_list(stor, 8, &e_storage);
-            if (a >= 0) {
-                ncur = a;
-                int nh = h > 0 ? h : 0;
-                int ns = s > 0 ? s : 0;
-                for (int i = 0; i < ncur; i++) {
-                    if (in_list(&cur[i], prv, nprv)) continue;
-                    int ish = in_list(&cur[i], hidl, nh);
-                    int is_mass = in_list(&cur[i], stor, ns);
-                    lg("+++ ATTACH %04X:%04X devid=%d HID=%d STORAGE=%d", cur[i].vid, cur[i].pid,
-                       (int)cur[i].device_id, ish, is_mass);
-                    if (cur[i].vid == 0x0810 && cur[i].pid == 0x0001) {
-                        seen_twin = 1;
-                        lg("!!! TWIN 0810:0001 APARECEU NO IOS%u !!!", n);
-                    }
-                    // Sem filtro VID/PID: qualquer dispositivo nao identificado como armazenamento.
-                    // Evita mexer no pendrive usado para salvar o log.
-                    if (!is_mass) open_dev(&cur[i]);
-                }
-                for (int i = 0; i < nprv; i++) {
-                    if (in_list(&prv[i], cur, ncur)) continue;
-                    lg("--- DETACH %04X:%04X", prv[i].vid, prv[i].pid);
-                }
-                memcpy(prv, cur, sizeof cur);
-                nprv = ncur;
-            }
-        }
-        service_trk(now);
-        VIDEO_WaitVSync();
-    }
-    lg("IOS%u: fim da janela. dispositivos=%d, Twin visto=%d", n, ncur, seen_twin);
-    close_all();
-    USB_Deinitialize();
-    usleep(300000);
+    int st=ios_state(n,&rev);
+    if(st==0){lg("IOS%u ausente, pulando",n);return;}
+    if(st<0){lg("IOS%u stub aparente, pulando",n);return;}
+    lg("IOS%u rev %u; IOS_ReloadIOS",n,rev);
+    s32 r=IOS_ReloadIOS(n);
+    lg("IOS_ReloadIOS(%u)=%d, agora IOS%d rev %d",n,(int)r,IOS_GetVersion(),IOS_GetRevision());
+    if (r<0 || IOS_GetVersion()!=(s32)n) return;
+    scan_loaded_ios(n);
 }
 
 int main(void)
@@ -361,9 +472,12 @@ int main(void)
     if (rmode->viTVMode & VI_NON_INTERLACE) VIDEO_WaitVSync();
     printf("\x1b[2;0H");
 
-    lg("MAIZON TWIN IOS SCAN v1.1 | IOS inicial %d rev %d", IOS_GetVersion(), IOS_GetRevision());
+    lg("MAIZON TWIN IOS SCAN v1.2 DEEP | IOS inicial %d rev %d", IOS_GetVersion(), IOS_GetRevision());
     lg("Mantenha o Twin plugado e o controle ligado. Nao precisa tocar em nada.");
-    lg("Sem escrita na NAND; so IOS_ReloadIOS em IOS ja instalados.");
+    lg("Sem NAND/SD. IOCTLV 12 (somente leitura) em OH0/OH1 de IOS55.");
+    lg("CCS/PES fisicos NAO disponiveis pelas interfaces comuns; nao inventar estados.");
+    if (IOS_GetVersion()==58) scan_loaded_ios(58);
+    else lg("IOS inicial nao 58; baseline IOS58 indisponivel.");
 
 #ifdef SCAN_EXTRA
     static const u32 cand[] = { 55, 37, 36 };   // 37/36: so se voce confirmar que nao sao stub
@@ -372,6 +486,11 @@ int main(void)
 #endif
     for (unsigned i = 0; i < sizeof cand / sizeof cand[0]; i++) scan_ios(cand[i]);
 
+    lg("=========== RESUMO GERAL ===========");
+    lg("IOS58 max dispositivos libogc=%d | IOS55 max=%d | Twin=%d",max_detected_58,max_detected_55,seen_twin_all);
+    lg("OHCI IOS55 informa dispositivos via IOCTLV sem depender do HID service.");
+    lg("Sem leitura eletrica CCS/PES (exigiria acesso Starlet privilegiado).");
+    if(!seen_twin_all) lg("NAO ENUMERADO pelos metodos testados; causa eletrica NAO determinada.");
     lg("=========== RESTAURANDO IOS58 ===========");
     s32 r = IOS_ReloadIOS(58);
     lg("IOS_ReloadIOS(58) = %d, agora IOS%d", (int)r, IOS_GetVersion());
