@@ -6,6 +6,7 @@
 #include <gccore.h>
 #include <wiiuse/wpad.h>
 #include <ogc/usb.h>
+#include <ogc/ipc.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -25,6 +26,13 @@ static unsigned g_packets = 0;
 static s32 g_usb_init = -999, g_usb_list = -999, g_open_result = -999;
 static int g_count = 0;
 static usb_device_entry g_entries[16];
+static usb_device_entry g_all_entries[16];
+static int g_all_count=0;
+static s32 g_usb_all_list=-999;
+static s32 g_hid_fd=-999, g_ven_fd=-999;
+static s32 g_hid_v4=-999, g_hid_v5=-999, g_ven_v5=-999;
+static u32 g_hid_ver=0, g_ven_ver=0;
+static u32 g_probe_buffer[8] __attribute__((aligned(32)));
 static char g_stage[120] = "Starting";
 static void on_power(void) { g_exit_requested = 1; }
 static s32 on_read(s32 result, void *unused) {
@@ -42,10 +50,10 @@ static void render(void) {
     printf("Maizon HID58 Probe v1 - no NAND writes\n");
     printf("Running IOS %u rev %u\n", (unsigned)IOS_GetVersion(), (unsigned)IOS_GetRevision());
     printf("USB_Initialize = %ld; USB_GetDeviceList = %ld\n",
-           (long)g_usb_init, (long)g_usb_list);
+           (long)g_usb_init, (long)g_usb_list, (long)g_usb_all_list);
     printf("Stage: %s\n", g_stage);
     printf("HID interfaces found: %d\n", g_count);
-    for (int i=0; i<g_count && i<8; i++) {
+    for (int i=0; i<g_count && i<4; i++) {
         printf("  %d: %04X:%04X id=%08lX\n", i,
                (unsigned)g_entries[i].vid, (unsigned)g_entries[i].pid,
                (unsigned long)g_entries[i].device_id);
@@ -114,6 +122,23 @@ int main(void) {
     memset(g_report,0,REPORT_MAX);
     set_stage("USB_Initialize (supports HID v5 via libogc)");
     render();
+    // Probe IOS device nodes BEFORE libogc claims the USB v5 hosts.
+    // USB_Initialize() returns 0 even if neither HID nor VEN opened!
+    g_hid_fd=IOS_Open("/dev/usb/hid", IPC_OPEN_NONE);
+    if(g_hid_fd>=0) {
+        g_hid_v4=IOS_Ioctl(g_hid_fd,6,NULL,0,NULL,0);
+        memset(g_probe_buffer,0,sizeof(g_probe_buffer));
+        g_hid_v5=IOS_Ioctl(g_hid_fd,0,NULL,0,g_probe_buffer,32);
+        g_hid_ver=g_probe_buffer[0];
+        IOS_Close(g_hid_fd);
+    }
+    g_ven_fd=IOS_Open("/dev/usb/ven", IPC_OPEN_NONE);
+    if(g_ven_fd>=0) {
+        memset(g_probe_buffer,0,sizeof(g_probe_buffer));
+        g_ven_v5=IOS_Ioctl(g_ven_fd,0,NULL,0,g_probe_buffer,32);
+        g_ven_ver=g_probe_buffer[0];
+        IOS_Close(g_ven_fd);
+    }
     g_usb_init=USB_Initialize();
     if(g_usb_init<0) { set_stage("USB_Initialize failed"); render(); goto idle; }
 
@@ -138,6 +163,10 @@ int main(void) {
             memset(g_entries,0,sizeof(g_entries));
             g_usb_list=USB_GetDeviceList(g_entries,16,USB_CLASS_HID,&n);
             g_count=(g_usb_list>=0)?n:0;
+            n=0;
+            memset(g_all_entries,0,sizeof(g_all_entries));
+            g_usb_all_list=USB_GetDeviceList(g_all_entries,16,0,&n);
+            g_all_count=(g_usb_all_list>=0)?n:0;
             if (g_device<0 && g_count>0) {
                 int index=0;
                 for (int i=0;i<g_count;i++) {
