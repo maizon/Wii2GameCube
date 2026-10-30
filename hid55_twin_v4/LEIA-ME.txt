@@ -1,0 +1,21 @@
+MAIZON TWIN IOS55 USBv4 EXPERIMENT v1.0
+=======================================
+Objetivo: reconhecer o adaptador Twin USB VID 0810 PID 0001 e obter os bytes dos botoes usando IOS55 HID v4.
+
+INSTALACAO (SEM SD)
+1) Copie a pasta apps para a raiz de seu pendrive FAT32.
+2) Execute Maizon Twin IOS55 USBv4 no Homebrew Channel, com o Twin USB na outra porta.
+3) O programa troca IOS58 -> IOS55 (se instalado) -> IOS58, em RAM.
+4) Aguarda automaticamente 25s na implementacao v4, sem pressionar controles do Wii.
+5) Apos restaurar IOS58 tenta salvar USB:/apps/MAIZON_HID55_TWIN/logs/IOS55_TWIN.txt.
+6) Se houver erro de montagem, a tela mostra o status; nao remova USB antes da saida.
+
+IMPORTANTE
+- Nao instala WAD, nao escreve NAND, nao substitui IOS.
+- IOS_ReloadIOS e IPC do IOS55 antigo PODEM travar em hardware real: nao e garantido risco zero.
+- No Wii v4 libogc USB_Initialize nao enumera HID; aplicativo acessa diretamente /dev/usb/hid ioctl 0/3/6/7/8.
+- O adaptador Twin USB 0810:0001 pode usar variantes de firmware diferentes.
+- Se a consulta ao IOS55 retornar valor diferente de 0x40001, nao tentara transferencias v4.
+- Nao modifique IOS ou use AnyRegion Changer para este experimento.
+
+CODIGO-FONTE: repositorio GitHub maizon/Wii2GameCube, pasta hid55_twin_v4.
