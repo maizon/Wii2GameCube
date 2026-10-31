@@ -1,0 +1,115 @@
+name: Maizon FakeMote v11-beta3 ready SD folder (not WAD)
+on:
+  push:
+    branches: [feature/maizon-fakemote-universal]
+    paths: ['.github/workflows/maizon-fakemote-beta3-sd.yml']
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Maizon_FakeMote_Universal_Experimental_APP
+          run-id: 41158405459
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/maizon_module
+      - name: Download source archives from upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 https://github.com/wiidev/d2x-cios/releases/download/d2x-v11-beta3/d2x-v11-beta3.zip -o /tmp/d2x.zip
+          curl -fL --retry 3 https://hbb1.oscwii.org/api/contents/d2x-cios-installer/d2x-cios-installer.zip -o /tmp/installer.zip
+          unzip -t /tmp/d2x.zip >/dev/null
+          unzip -t /tmp/installer.zip >/dev/null
+          mkdir -p /tmp/d2x_pkg /tmp/installer_pkg
+          unzip -q /tmp/d2x.zip -d /tmp/d2x_pkg
+          unzip -q /tmp/installer.zip -d /tmp/installer_pkg
+          echo "=== d2x official zip ==="
+          find /tmp/d2x_pkg -maxdepth 4 -type f | head -45
+          echo "=== Installer zip ==="
+          find /tmp/installer_pkg -maxdepth 5 -type f | head -35
+          echo "=== Fakemote module ==="
+          find /tmp/maizon_module -maxdepth 2 -type f
+      - name: Construct isolated SD installer using d2x-v11-beta3 + IOS58
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil, xml.etree.ElementTree as ET, hashlib
+          src = Path('/tmp/installer_pkg')
+          bins = list(src.rglob('boot.dol'))
+          assert len(bins)==1, f'Unexpected installer folder: {bins}'
+          source_app = bins[0].parent
+          pkg = Path('/tmp/d2x_pkg')
+          xmls = list(pkg.rglob('ciosmaps.xml'))
+          assert len(xmls)==1, f'Unexpected official ciosmaps XML: {xmls}'
+          root_pkg = xmls[0].parent
+          app = Path('/tmp/maizon_sd/apps/Maizon-FakeMote-v11-beta3-TESTE')
+          shutil.copytree(source_app,app)
+          for item in root_pkg.iterdir():
+              dst=app/item.name
+              if item.is_dir():
+                  shutil.copytree(item,dst,dirs_exist_ok=True)
+              else:
+                  shutil.copy2(item,dst)
+          group_name='d2x-v11-beta3'
+          xmlpath=app/'ciosmaps.xml'
+          r=ET.parse(xmlpath)
+          grps=r.findall('.//ciosgroup')
+          assert len(grps)==1, [(g.get('name')) for g in grps]
+          group=grps[0]
+          print('VERSION',group.get('name'))
+          bases=[x for x in group.findall('base') if x.get('ios')=='58']
+          assert len(bases)==1
+          base=bases[0]
+          assert base.get('version')=='6175',f"Wrong IOS58 revision {base.get('version')}"
+          contents=base.findall('content')
+          assert len(contents)==int(base.get('contentscount'))
+          modules=[x for x in contents if x.get('module')]
+          assert len(modules)==int(base.get('modulescount'))
+          assert not any(x.get('module')=='FAKEMOTE' for x in contents)
+          next_id=max(int(x.get('id'),0) for x in contents)+1
+          assert next_id <= 255
+          ET.SubElement(base,'content',{'id':hex(next_id),'module':'FAKEMOTE','tmdmoduleid':'-1'})
+          base.set('contentscount',str(len(contents)+1))
+          base.set('modulescount',str(len(modules)+1))
+          r.write(xmlpath,encoding='utf-8',xml_declaration=True)
+          # Resolve matching module group using original packaged modules.
+          dirs=[p for p in app.rglob(group.get('name')) if p.is_dir()]
+          assert len(dirs)==1,f'Cannot determine module directory {dirs}'
+          module_src=Path('/tmp/maizon_module/FAKEMOTE.app')
+          assert module_src.is_file() and module_src.stat().st_size>1000
+          target=dirs[0]/'FAKEMOTE.app'
+          assert not target.exists()
+          shutil.copyfile(module_src,target)
+          assert (app/'boot.dol').exists()
+          print('TARGET:',target,'SHA256',hashlib.sha256(target.read_bytes()).hexdigest())
+          print('XML base 58 patched; other slots and bases NOT selected')
+          (Path('/tmp/maizon_sd')/'LEIA_PRIMEIRO.txt').write_text(
+              "MAIZON FAKEMOTE UNIVERSAL — EXPERIMENTAL v0.4.1\n"
+              "Este ZIP contem um instalador d2x-v11-beta3 PREPARADO; NAO E UM WAD.\n"
+              "Copie a pasta apps/ para a raiz do SD do Wii original.\n"
+              "Conecte Wii a internet para obter IOS58, ou forneca IOS58-64-v6175.wad obtido legalmente.\n"
+              "No Homebrew Channel inicie Maizon-FakeMote-v11-beta3-TESTE.\n"
+              "Base IOS58, slot adicional LIVRE apenas (252 somente se livre), revisao 65535.\n"
+              "NAO SUBSTITUA seus IOS atuais, NAO MUDE Priiloader nesta etapa.\n"
+              "Nao instale se nao tem backup NAND / metodo de recuperacao confirmado.\n"
+              "MODULO NAO TESTADO NO HARDWARE WII; risco real de travar menu.\n"
+              "Nunca instale versoes vWii em um Wii original.\n"
+              "Origem: d2x-v11-beta3 wiidev, installer Open Shop Channel, Maizon Fakemote.\n",encoding='utf-8')
+          PY
+          cd /tmp/maizon_sd
+          zip -rq /tmp/maizon_sd_ready.zip apps LEIA_PRIMEIRO.txt
+          unzip -t /tmp/maizon_sd_ready.zip | tail -2
+      - name: Publish artifact for manual inspection (NO WAD)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Maizon_FakeMote_v11beta3_SD_Preparado_EXPERIMENTAL
+          path: /tmp/maizon_sd_ready.zip
+          if-no-files-found: error
