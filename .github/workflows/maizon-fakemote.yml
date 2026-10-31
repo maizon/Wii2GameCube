@@ -37,6 +37,10 @@ jobs:
           /tmp/cmake-install.sh --skip-license --prefix=/usr/local
           wget -q https://raw.githubusercontent.com/Leseratte10/d2xl-cios/master/stripios/main.cpp -O /tmp/stripios.cpp
           g++ -O2 /tmp/stripios.cpp -o /usr/local/bin/stripios
+          echo "$DEVKITPRO/devkitARM/bin" >> "$GITHUB_PATH"
+          echo "$DEVKITPRO/tools/bin" >> "$GITHUB_PATH"
+          export PATH="$DEVKITPRO/devkitARM/bin:$DEVKITPRO/tools/bin:$PATH"
+          test -x "$DEVKITPRO/devkitARM/bin/arm-none-eabi-gcc"
           command -v arm-none-eabi-gcc
           command -v stripios
           cmake --version
