@@ -1,8 +1,8 @@
-name: Maizon FakeMote Universal experimental Starlet build
+name: Maizon FakeMote 0079 DragonRise isolation build
 on:
   push:
     branches:
-      - feature/maizon-fakemote-universal
+      - feature/maizon-fakemote-dragonrise-isolation
     paths:
       - 'fakemote-universal/**'
       - '.github/workflows/maizon-fakemote.yml'
@@ -56,11 +56,12 @@ jobs:
           python3 /tmp/maizon-patch/tools/prepare_fakemote.py /tmp/fakemote /tmp/Nintendont/controllerconfigs
           python3 fakemote-universal/v04/upgrade.py /tmp/fakemote
           python3 fakemote-universal/v04/fix_priority.py /tmp/fakemote
+          python3 fakemote-universal/v04/diagnostic_safe_0079.py /tmp/fakemote
           python3 - <<'PY'
           from pathlib import Path
           x=Path("/tmp/fakemote/embedded-game-controller/embedded-game-controller/egc.c").read_text()
-          assert x.index("&nin_ini_usb_device_driver") < x.index("&dr_usb_device_driver")
-          print("PASS: 0079:0006 routed to Nintendont INI driver before DragonRise")
+          assert x.index("&dr_usb_device_driver") < x.index("&nin_ini_usb_device_driver")
+          print("PASS: 0079:0006 routed to original DragonRise, not experimental Nintendont polling")
           PY
       - name: Smoke-test real generated 0810:0001 profile and USB descriptor
         shell: bash
@@ -123,6 +124,6 @@ jobs:
       - name: Upload experimental FAKEMOTE.app (NOT A WAD)
         uses: actions/upload-artifact@v4
         with:
-          name: Maizon_FakeMote_Universal_Experimental_APP
+          name: Maizon_FakeMote_DragonRise_Isolation_DO_NOT_SET_MENU_IOS
           path: /tmp/fakemote/build/Release/FAKEMOTE.app
           if-no-files-found: error
