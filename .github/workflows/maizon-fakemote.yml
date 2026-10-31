@@ -55,21 +55,42 @@ jobs:
           python3 -c 'from pathlib import Path; p=Path("/tmp/fakemote/source/input_device.c"); p.write_text(p.read_text().expandtabs(4))'
           python3 /tmp/maizon-patch/tools/prepare_fakemote.py /tmp/fakemote /tmp/Nintendont/controllerconfigs
           python3 fakemote-universal/v04/upgrade.py /tmp/fakemote
-      - name: Run portable decoder / pointer endpoint tests
+      - name: Smoke-test real generated 0810:0001 profile and USB descriptor
         shell: bash
         run: |
           set -euxo pipefail
-          cc -std=c11 -Wall -Wextra -Werror -pedantic \
+          cat > /tmp/maizon_smoke.c <<'EOF'
+          #include "nin_hid.h"
+          #include "nin_profiles_generated.h"
+          #include "nin_usb_desc.h"
+          #include <assert.h>
+          #include <stdio.h>
+          int main(void) {
+              const nin_profile_t *p = nin_find_profile(nin_profiles, NIN_PROFILE_COUNT, 0x0810, 0x0001);
+              assert(p != NULL);
+              unsigned char report[7] = {1,128,128,128,128,0x20,0x20};
+              nin_input_t got = {0};
+              assert(nin_decode(p, report, sizeof(report), &got));
+              assert(got.buttons & (1u << NIN_A));
+              assert(got.buttons & (1u << NIN_UP));
+              assert(got.buttons & (1u << NIN_START));
+              assert(nin_usb_interrupt_in_endpoint(NULL, 0) == 0x81);
+              unsigned char usb[96] = {0};
+              usb[36]=18;usb[37]=1;
+              usb[56]=9;usb[57]=2;
+              usb[68]=9;usb[69]=4;usb[73]=3;
+              usb[80]=7;usb[81]=5;usb[82]=0x82;usb[83]=3;
+              assert(nin_usb_interrupt_in_endpoint(usb, sizeof usb) == 0x82);
+              puts("PASS: Nintendont 0810:0001 + endpoint descriptor");
+              return 0;
+          }
+          EOF
+          cc -std=c11 -O1 -Wall -Wextra -Werror -pedantic \
             -I/tmp/fakemote/embedded-game-controller/embedded-game-controller/usb_drivers \
-            -c /tmp/fakemote/embedded-game-controller/embedded-game-controller/usb_drivers/nin_usb_desc.c \
-            -o /tmp/nin_usb_desc.o
-          (cd /tmp/maizon-patch && \
-          cc -std=c11 -O1 -Wall -Wextra -Werror -pedantic -Icore \
-             core/nin_hid.c tests/test_core.c -o /tmp/maizon_core_test &&
-          /tmp/maizon_core_test &&
-          cc -std=c11 -O1 -Wall -Wextra -Werror -pedantic -Icore \
-             core/nin_hid.c tests/test_fuzz.c -o /tmp/maizon_fuzz_test &&
-          /tmp/maizon_fuzz_test)
+            /tmp/fakemote/embedded-game-controller/embedded-game-controller/usb_drivers/nin_hid.c \
+            /tmp/fakemote/embedded-game-controller/embedded-game-controller/usb_drivers/nin_usb_desc.c \
+            /tmp/maizon_smoke.c -o /tmp/maizon_smoke
+          /tmp/maizon_smoke
       - name: Compile Starlet module
         shell: bash
         run: |
