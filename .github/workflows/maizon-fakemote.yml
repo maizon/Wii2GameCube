@@ -54,6 +54,22 @@ jobs:
           # Fakemote main currently uses tabs for button maps; patcher expects spaces.
           python3 -c 'from pathlib import Path; p=Path("/tmp/fakemote/source/input_device.c"); p.write_text(p.read_text().expandtabs(4))'
           python3 /tmp/maizon-patch/tools/prepare_fakemote.py /tmp/fakemote /tmp/Nintendont/controllerconfigs
+          python3 fakemote-universal/v04/upgrade.py /tmp/fakemote
+      - name: Run portable decoder / pointer endpoint tests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cc -std=c11 -Wall -Wextra -Werror -pedantic \
+            -I/tmp/fakemote/embedded-game-controller/embedded-game-controller/usb_drivers \
+            -c /tmp/fakemote/embedded-game-controller/embedded-game-controller/usb_drivers/nin_usb_desc.c \
+            -o /tmp/nin_usb_desc.o
+          (cd /tmp/maizon-patch && \
+          cc -std=c11 -O1 -Wall -Wextra -Werror -pedantic -Icore \
+             core/nin_hid.c tests/test_core.c -o /tmp/maizon_core_test &&
+          /tmp/maizon_core_test &&
+          cc -std=c11 -O1 -Wall -Wextra -Werror -pedantic -Icore \
+             core/nin_hid.c tests/test_fuzz.c -o /tmp/maizon_fuzz_test &&
+          /tmp/maizon_fuzz_test)
       - name: Compile Starlet module
         shell: bash
         run: |
