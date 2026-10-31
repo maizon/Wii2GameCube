@@ -112,7 +112,7 @@ edit(egc / "CMakeLists.txt", [
 ])
 edit(egc / "backends" / "ogc.c", [
     ("    u8 outbuf[96] ATTRIBUTE_ALIGN(32);",
-     "    u8 outbuf[96] ATTRIBUTE_ALIGN(32);\\n    memset(outbuf, 0, sizeof(outbuf));"),
+     "    u8 outbuf[96] ATTRIBUTE_ALIGN(32);\n    memset(outbuf, 0, sizeof(outbuf));"),
     ('#include "ipc.h"', '#include "ipc.h"\n#include "driver_api.h"\n#include "usb_drivers/nin_usb_desc.h"'),
     ("    u32 dev_id;\n    egc_usb_devdesc_t desc;",
      "    u32 dev_id;\n    u8 intr_in_endpoint;\n    egc_usb_devdesc_t desc;"),
