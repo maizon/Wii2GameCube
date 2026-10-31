@@ -51,6 +51,8 @@ jobs:
           git clone --recursive --depth=1 https://github.com/xerpi/fakemote.git /tmp/fakemote
           git clone --depth=1 --filter=blob:none --sparse https://github.com/FIX94/Nintendont.git /tmp/Nintendont
           git -C /tmp/Nintendont sparse-checkout set controllerconfigs
+          # Fakemote main currently uses tabs for button maps; patcher expects spaces.
+          python3 -c 'from pathlib import Path; p=Path("/tmp/fakemote/source/input_device.c"); p.write_text(p.read_text().expandtabs(4))'
           python3 /tmp/maizon-patch/tools/prepare_fakemote.py /tmp/fakemote /tmp/Nintendont/controllerconfigs
       - name: Compile Starlet module
         shell: bash
