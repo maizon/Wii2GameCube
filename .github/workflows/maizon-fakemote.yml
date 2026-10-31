@@ -55,6 +55,13 @@ jobs:
           python3 -c 'from pathlib import Path; p=Path("/tmp/fakemote/source/input_device.c"); p.write_text(p.read_text().expandtabs(4))'
           python3 /tmp/maizon-patch/tools/prepare_fakemote.py /tmp/fakemote /tmp/Nintendont/controllerconfigs
           python3 fakemote-universal/v04/upgrade.py /tmp/fakemote
+          python3 fakemote-universal/v04/fix_priority.py /tmp/fakemote
+          python3 - <<'PY'
+          from pathlib import Path
+          x=Path("/tmp/fakemote/embedded-game-controller/embedded-game-controller/egc.c").read_text()
+          assert x.index("&nin_ini_usb_device_driver") < x.index("&dr_usb_device_driver")
+          print("PASS: 0079:0006 routed to Nintendont INI driver before DragonRise")
+          PY
       - name: Smoke-test real generated 0810:0001 profile and USB descriptor
         shell: bash
         run: |
@@ -81,7 +88,19 @@ jobs:
               usb[68]=9;usb[69]=4;usb[73]=3;
               usb[80]=7;usb[81]=5;usb[82]=0x82;usb[83]=3;
               assert(nin_usb_interrupt_in_endpoint(usb, sizeof usb) == 0x82);
-              puts("PASS: Nintendont 0810:0001 + endpoint descriptor");
+              const nin_profile_t *usbjoy = nin_find_profile(nin_profiles, NIN_PROFILE_COUNT, 0x0079, 0x0006);
+              assert(usbjoy != NULL);
+              unsigned char dr_report[7] = {128,128,128,128,128,0x40,0x20};
+              nin_input_t n = {0};
+              assert(nin_decode(usbjoy, dr_report, sizeof dr_report, &n));
+              assert(n.buttons & (1u << NIN_A));
+              assert(n.buttons & (1u << NIN_START));
+              assert(n.buttons & (1u << NIN_UP));
+              dr_report[5] = 0x48; /* Hat neutral, A still pressed */
+              assert(nin_decode(usbjoy, dr_report, sizeof dr_report, &n));
+              assert(n.buttons & (1u << NIN_A));
+              assert(!(n.buttons & (1u << NIN_UP)));
+              puts("PASS: Nintendont 0810:0001 and 0079:0006 + endpoint descriptor");
               return 0;
           }
           EOF
