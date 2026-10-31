@@ -1,0 +1,66 @@
+name: Maizon FakeMote Universal experimental Starlet build
+on:
+  push:
+    branches:
+      - feature/maizon-fakemote-universal
+    paths:
+      - 'fakemote-universal/**'
+      - '.github/workflows/maizon-fakemote.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  starlet:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitarm:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unpack and verify Maizon HID patch sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/maizon-patch
+          cat fakemote-universal/packed/part*.b64 | tr -d '\n\r' | base64 -d > /tmp/maizon-patch.tar.xz
+          echo "e12b9707bb463d01829fc145bcd468ddb5f78ebf8d33309fd6546686436e000f  /tmp/maizon-patch.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/maizon-patch.tar.xz -C /tmp/maizon-patch
+          test -f /tmp/maizon-patch/tools/prepare_fakemote.py
+      - name: Setup build tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          apt-get update
+          apt-get install -y git ca-certificates python3 wget g++ ninja-build xz-utils
+          wget -q https://github.com/Kitware/CMake/releases/download/v4.0.2/cmake-4.0.2-linux-x86_64.sh -O /tmp/cmake-install.sh
+          chmod +x /tmp/cmake-install.sh
+          /tmp/cmake-install.sh --skip-license --prefix=/usr/local
+          wget -q https://raw.githubusercontent.com/Leseratte10/d2xl-cios/master/stripios/main.cpp -O /tmp/stripios.cpp
+          g++ -O2 /tmp/stripios.cpp -o /usr/local/bin/stripios
+          command -v arm-none-eabi-gcc
+          command -v stripios
+          cmake --version
+      - name: Fetch upstream sources and Nintendont profiles
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --recursive --depth=1 https://github.com/xerpi/fakemote.git /tmp/fakemote
+          git clone --depth=1 --filter=blob:none --sparse https://github.com/FIX94/Nintendont.git /tmp/Nintendont
+          git -C /tmp/Nintendont sparse-checkout set controllerconfigs
+          python3 /tmp/maizon-patch/tools/prepare_fakemote.py /tmp/fakemote /tmp/Nintendont/controllerconfigs
+      - name: Compile Starlet module
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cmake -S /tmp/fakemote -B /tmp/fakemote/build/Release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$DEVKITPRO/cmake/devkitARM.cmake"
+          cmake --build /tmp/fakemote/build/Release --parallel 2
+          test -s /tmp/fakemote/build/Release/FAKEMOTE.app
+          sha256sum /tmp/fakemote/build/Release/FAKEMOTE.app
+      - name: Upload experimental FAKEMOTE.app (NOT A WAD)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Maizon_FakeMote_Universal_Experimental_APP
+          path: /tmp/fakemote/build/Release/FAKEMOTE.app
+          if-no-files-found: error
